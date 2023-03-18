@@ -62,6 +62,9 @@ public final class JSDocSerializer {
     if (jsdoc.isNoInline()) {
       builder.addKind(JsdocTag.JSDOC_NO_INLINE);
     }
+    if (jsdoc.isImmovable()) {
+      builder.addKind(JsdocTag.JSDOC_IMMOVABLE);
+    }
     if (jsdoc.isNoCollapse()) {
       builder.addKind(JsdocTag.JSDOC_NO_COLLAPSE);
     }
@@ -235,6 +238,9 @@ public final class JSDocSerializer {
           continue;
         case JSDOC_NO_COLLAPSE:
           builder.recordNoCollapse();
+          continue;
+        case JSDOC_IMMOVABLE:
+          builder.recordImmovable();
           continue;
         case JSDOC_NO_INLINE:
           builder.recordNoInline();

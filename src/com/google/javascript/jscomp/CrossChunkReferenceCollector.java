@@ -382,8 +382,7 @@ public final class CrossChunkReferenceCollector implements ScopedCallback, Compi
         // for the special stub method calls used for CrossChunkMethodMotion.
         // Case: `JSCompiler_stubMethod(x)`
         Node functionName = checkNotNull(valueNode.getFirstChild());
-        return functionName.isName()
-            && functionName.getString().equals(CrossChunkMethodMotion.STUB_METHOD_NAME);
+        return canMoveValue(scope, functionName);
 
       case ARRAYLIT:
         // Movable if all of the array values are movable.
@@ -430,13 +429,23 @@ public final class CrossChunkReferenceCollector implements ScopedCallback, Compi
         // If the value is guaranteed to never be changed after
         // this reference, then we can move it.
         Var v = scope.getVar(valueNode.getString());
-        if (v != null && v.isGlobal()) {
-          ReferenceCollection refCollection = getReferences(v);
-          if (refCollection != null
-              && refCollection.isWellDefined()
-              && refCollection.isAssignedOnceInLifetime()) {
-            return true;
+        ReferenceCollection refCollection = getReferences(v);
+        if (refCollection == null) {
+          return true;
+        } else if (v.isGlobal()) {
+          List<BasicBlock> assignmentBlocks = new ArrayList<>();
+          for (Reference ref : refCollection) {
+            if (ref.isLvalue() || ref.isInitializingDeclaration()) {
+              BasicBlock basicBlock = ref.getBasicBlock();
+              for (BasicBlock assignmentBlock : assignmentBlocks) {
+                if (assignmentBlock.provablyExecutesBefore(basicBlock)) {
+                  return false;
+                }
+              }
+              assignmentBlocks.add(basicBlock);
+            }
           }
+          return true;
         }
         break;
 
@@ -454,7 +463,12 @@ public final class CrossChunkReferenceCollector implements ScopedCallback, Compi
         return true;
 
       default:
-        break;
+        for (Node child = valueNode.getFirstChild(); child != null; child = child.getNext()) {
+          if (!canMoveValue(scope, child)) {
+            return false;
+          }
+        }
+        return true;
     }
 
     return false;
@@ -471,6 +485,7 @@ public final class CrossChunkReferenceCollector implements ScopedCallback, Compi
     private final List<Reference> nonDeclarationReferences;
     private final Reference declaredNameReference;
     private final Node declaredValueNode;
+    private final boolean moveable;
 
     TopLevelStatement(TopLevelStatementDraft draft) {
       this.originalOrder = draft.originalOrder;
@@ -479,6 +494,17 @@ public final class CrossChunkReferenceCollector implements ScopedCallback, Compi
       this.nonDeclarationReferences = Collections.unmodifiableList(draft.nonDeclarationReferences);
       this.declaredNameReference = draft.declaredNameReference;
       this.declaredValueNode = draft.declaredValueNode;
+      moveable = false;
+    }
+
+    TopLevelStatement(TopLevelStatement other) {
+      this.originalOrder = other.originalOrder;
+      this.module = other.module;
+      this.statementNode = other.statementNode;
+      this.nonDeclarationReferences = Collections.unmodifiableList(other.nonDeclarationReferences);
+      this.declaredNameReference = other.declaredNameReference;
+      this.declaredValueNode = other.declaredValueNode;
+      moveable = true;
     }
 
     int getOriginalOrder() {
@@ -511,8 +537,8 @@ public final class CrossChunkReferenceCollector implements ScopedCallback, Compi
     }
 
     boolean isMovableDeclaration() {
-      return isDeclarationStatement()
-          && canMoveValue(declaredNameReference.getScope(), declaredValueNode);
+      return moveable || (isDeclarationStatement()
+          && canMoveValue(declaredNameReference.getScope(), declaredValueNode));
     }
   }
 

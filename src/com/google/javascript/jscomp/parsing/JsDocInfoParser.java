@@ -692,6 +692,12 @@ public final class JsDocInfoParser {
           }
           return eatUntilEOLIfNotAnnotation();
 
+        case IMMOVABLE:
+          if (!jsdocBuilder.recordImmovable()) {
+            addParserWarning(Msg.JSDOC_IMMOVABLE);
+          }
+          return eatUntilEOLIfNotAnnotation();
+
         case NO_INLINE:
           if (!jsdocBuilder.recordNoInline()) {
             addParserWarning(Msg.JSDOC_NOINLINE);

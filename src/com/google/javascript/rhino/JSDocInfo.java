@@ -316,6 +316,7 @@ public class JSDocInfo implements Serializable {
     EXPORT,
     ENHANCED_NAMESPACE,
     NOINLINE,
+    IMMOVABLE,
     FILEOVERVIEW,
     IMPLICITCAST,
     NOSIDEEFFECTS,
@@ -832,6 +833,11 @@ public class JSDocInfo implements Serializable {
   /** Returns whether the {@code @nocollapse} annotation is present on this {@link JSDocInfo}. */
   public boolean isNoCollapse() {
     return checkBit(Bit.NOCOLLAPSE);
+  }
+
+  /** Returns whether the {@code @noinline} annotation is present on this {@link JSDocInfo}. */
+  public boolean isImmovable() {
+    return checkBit(Bit.IMMOVABLE);
   }
 
   /** Returns whether the {@code @noinline} annotation is present on this {@link JSDocInfo}. */
@@ -2218,6 +2224,17 @@ public class JSDocInfo implements Serializable {
      */
     public boolean recordNoCollapse() {
       return populateBit(Bit.NOCOLLAPSE, true);
+    }
+
+    /**
+     * Records that the {@link JSDocInfo} being built should have its {@link
+     * JSDocInfo#isNoCollapse()} flag set to {@code true}.
+     *
+     * @return {@code true} if the no collapse flag was recorded and {@code false} if it was already
+     *     recorded
+     */
+    public boolean recordImmovable() {
+      return populateBit(Bit.IMMOVABLE, true);
     }
 
     /**

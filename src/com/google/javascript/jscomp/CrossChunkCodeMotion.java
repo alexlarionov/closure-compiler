@@ -21,6 +21,7 @@ import static com.google.common.base.Preconditions.checkState;
 
 import com.google.javascript.jscomp.CrossChunkReferenceCollector.TopLevelStatement;
 import com.google.javascript.rhino.IR;
+import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import java.util.ArrayDeque;
@@ -131,10 +132,23 @@ class CrossChunkCodeMotion implements CompilerPass {
         if (statement.isDeclarationStatement()) {
           processDeclarationStatement(statement);
         } else {
-          processImmovableStatement(statement);
+          if (isImmovableStatement(statement.getStatementNode())) {
+            processImmovableStatement(statement);
+          } else {
+            processMovableStatement(referenceCollector.new TopLevelStatement(statement));
+          }
         }
       }
       return symbolStack;
+    }
+
+    private boolean isImmovableStatement(Node n) {
+      return isImmovable(NodeUtil.getBestJSDocInfo(n)) ||
+              isImmovable(NodeUtil.getEnclosingScript(n).getJSDocInfo());
+    }
+
+    private boolean isImmovable(JSDocInfo jsDocInfo) {
+      return jsDocInfo != null && jsDocInfo.isImmovable();
     }
 
     private void processImmovableStatement(TopLevelStatement statement) {
@@ -161,6 +175,24 @@ class CrossChunkCodeMotion implements CompilerPass {
         }
       }
       globalSymbol.addImmovableReference(module);
+    }
+
+    private void processMovableStatement(TopLevelStatement statement) {
+      GlobalSymbol declaredSymbol = new GlobalSymbol(null);
+      symbolStack.push(declaredSymbol);
+      DeclarationStatementGroup dsg = declaredSymbol.addDeclarationStatement(statement);
+      processMovableStatementContainedReferences(statement, declaredSymbol, dsg);
+    }
+
+    private void processMovableStatementContainedReferences(
+            TopLevelStatement statement, GlobalSymbol declaredSymbol, DeclarationStatementGroup dsg) {
+      for (Reference ref : statement.getNonDeclarationReferences()) {
+        GlobalSymbol refSymbol = globalSymbolforVar.get(ref.getSymbol());
+        if (refSymbol != null) {
+          dsg.addReferenceToGlobalSymbol(refSymbol);
+          refSymbol.addReferringGlobalSymbol(declaredSymbol);
+        }
+      }
     }
 
     private void processDeclarationStatement(TopLevelStatement statement) {
@@ -254,7 +286,7 @@ class CrossChunkCodeMotion implements CompilerPass {
 
     @Override
     public String toString() {
-      return var.getName();
+      return var != null ? var.getName() : null;
     }
 
     void addImmovableReference(JSChunk module) {
@@ -472,7 +504,7 @@ class CrossChunkCodeMotion implements CompilerPass {
 
     Deque<GlobalSymbolCycle> orderAndCombine() {
       for (GlobalSymbol globalSymbol : inputSymbols) {
-        if (globalSymbol.preorderNumber < 0) {
+        if (globalSymbol.toString() != null && globalSymbol.preorderNumber < 0) {
           processGlobalSymbol(globalSymbol);
         } // else already processed
       }
@@ -504,7 +536,12 @@ class CrossChunkCodeMotion implements CompilerPass {
       componentContents.push(symbol); // could be part of an existing strongly connected component
       for (GlobalSymbol referringSymbol : symbol.referencingGlobalSymbols) {
         if (referringSymbol.preorderNumber < 0) {
-          processGlobalSymbol(referringSymbol);
+          if (referringSymbol.toString() != null) {
+            processGlobalSymbol(referringSymbol);
+          } else {
+            referringSymbol.preorderNumber = preorderCounter++;
+            componentContents.push(referringSymbol);
+          }
         } else {
           if (!referringSymbol.hasBeenAssignedToAStronglyConnectedComponent) {
             // This GlobalSymbol is part of a not-yet-completed strongly connected component.

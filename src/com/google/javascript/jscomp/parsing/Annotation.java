@@ -44,6 +44,7 @@ enum Annotation {
   FINAL,
   HIDDEN,
   IDGENERATOR,
+  IMMOVABLE,
   IMPLEMENTS,
   IMPLICIT_CAST,
   INHERIT_DOC,
@@ -117,6 +118,7 @@ enum Annotation {
           .put("final", Annotation.FINAL)
           .put("hidden", Annotation.HIDDEN)
           .put("idGenerator", Annotation.IDGENERATOR)
+          .put("immovable", Annotation.IMMOVABLE)
           .put("implements", Annotation.IMPLEMENTS)
           .put("implicitCast", Annotation.IMPLICIT_CAST)
           .put("inheritDoc", Annotation.INHERIT_DOC)

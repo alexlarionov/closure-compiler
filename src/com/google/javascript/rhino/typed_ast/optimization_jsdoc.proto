@@ -27,6 +27,9 @@ enum JsdocTag {
   JSDOC_THROWS = 6;
   JSDOC_NO_SIDE_EFFECTS = 7;
 
+  // Used by CrossChunkCodeMotion
+  JSDOC_IMMOVABLE = 5;
+
   // Used by DevirtualizeMethods and CollapseProperties
   JSDOC_CONSTRUCTOR = 8;
   JSDOC_INTERFACE = 9;

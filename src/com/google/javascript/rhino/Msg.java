@@ -104,6 +104,7 @@ public enum Msg {
   JSDOC_NAME_SYNTAX("name not recognized due to syntax error."),
   JSDOC_NGINJECT_EXTRA("extra @ngInject tag"),
   JSDOC_NOCOLLAPSE("extra @nocollapse tag"),
+  JSDOC_IMMOVABLE("extra @immovable tag"),
   JSDOC_NOCOMPILE("extra @nocompile tag"),
   JSDOC_NOINLINE("extra @noinline tag"),
   JSDOC_NOSIDEEFFECTS("conflicting @nosideeffects tag"),
