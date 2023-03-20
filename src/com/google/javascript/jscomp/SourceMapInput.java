@@ -20,7 +20,7 @@ import com.google.debugging.sourcemap.SourceMapConsumerV3;
 import com.google.debugging.sourcemap.SourceMapParseException;
 import java.io.IOException;
 import java.io.Serializable;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  * A lazy-loaded SourceMapConsumerV3 instance.
@@ -29,7 +29,7 @@ public final class SourceMapInput implements Serializable {
   private final SourceFile sourceFile;
   // No need to serialize the consumer, it will be recreated because the serialized version will
   // have cached = false.
-  private transient volatile SourceMapConsumerV3 parsedSourceMap = null;
+  private transient volatile @Nullable SourceMapConsumerV3 parsedSourceMap = null;
   private transient volatile boolean cached = false;
 
   static final DiagnosticType SOURCEMAP_RESOLVE_FAILED =
@@ -51,7 +51,7 @@ public final class SourceMapInput implements Serializable {
     if (!cached) {
       // Avoid re-reading or reparsing files.
       cached = true;
-      String sourceMapPath = sourceFile.getOriginalPath();
+      String sourceMapPath = sourceFile.getName();
       try {
         String sourceMapContents = sourceFile.getCode();
         SourceMapConsumerV3 consumer = new SourceMapConsumerV3();
@@ -74,6 +74,6 @@ public final class SourceMapInput implements Serializable {
    * Gets the original location of this sourcemap file on disk.
    */
   public String getOriginalPath() {
-    return sourceFile.getOriginalPath();
+    return sourceFile.getName();
   }
 }

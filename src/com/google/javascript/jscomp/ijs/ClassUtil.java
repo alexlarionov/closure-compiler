@@ -23,7 +23,8 @@ import static com.google.common.base.Strings.isNullOrEmpty;
 import com.google.javascript.jscomp.NodeUtil;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
-import javax.annotation.Nullable;
+import com.google.javascript.rhino.QualifiedName;
+import org.jspecify.nullness.Nullable;
 
 /**
  * Static utility methods for dealing with classes.  The primary benefit is for papering over
@@ -31,6 +32,8 @@ import javax.annotation.Nullable;
  */
 final class ClassUtil {
   private ClassUtil() {}
+
+  private static final QualifiedName GOOG_DEFINECLASS = QualifiedName.of("goog.defineClass");
 
   static boolean isThisProp(Node getprop) {
     return getClassNameOfThisProp(getprop) != null;
@@ -41,8 +44,7 @@ final class ClassUtil {
     return className + ".prototype." + getprop.getString();
   }
 
-  @Nullable
-  private static String getClassNameOfThisProp(Node getprop) {
+  private static @Nullable String getClassNameOfThisProp(Node getprop) {
     if (!getprop.isGetProp() || !getprop.getFirstChild().isThis()) {
       return null;
     }
@@ -80,7 +82,7 @@ final class ClassUtil {
     return parent.isStringKey()
         && parent.getParent().isObjectLit()
         && parent.getGrandparent().isCall()
-        && parent.getGrandparent().getFirstChild().matchesQualifiedName("goog.defineClass");
+        && GOOG_DEFINECLASS.matches(parent.getGrandparent().getFirstChild());
   }
 
   /**
@@ -119,6 +121,6 @@ final class ClassUtil {
           "constructor".equals(functionNode.getParent().getString());
     }
     JSDocInfo jsdoc = NodeUtil.getBestJSDocInfo(functionNode);
-    return jsdoc != null && jsdoc.isConstructor();
+    return jsdoc != null && jsdoc.isConstructorOrInterface();
   }
 }

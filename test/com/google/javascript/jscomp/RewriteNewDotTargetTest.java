@@ -15,7 +15,7 @@
  */
 package com.google.javascript.jscomp;
 
-import static com.google.javascript.jscomp.Es6ToEs3Util.CANNOT_CONVERT_YET;
+import static com.google.javascript.jscomp.TranspilationUtil.CANNOT_CONVERT_YET;
 
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import org.junit.Before;
@@ -33,6 +33,7 @@ public class RewriteNewDotTargetTest extends CompilerTestCase {
     enableTypeCheck();
     enableTypeInfoValidation();
     replaceTypesWithColors();
+    enableMultistageCompilation();
   }
 
   @Override
@@ -43,7 +44,7 @@ public class RewriteNewDotTargetTest extends CompilerTestCase {
   @Override
   protected CompilerOptions getOptions() {
     CompilerOptions options = super.getOptions();
-    options.setLanguageIn(LanguageMode.ECMASCRIPT_NEXT_IN);
+    options.setLanguageIn(LanguageMode.UNSTABLE);
     options.setLanguageOut(LanguageMode.ECMASCRIPT5_STRICT);
     return options;
   }

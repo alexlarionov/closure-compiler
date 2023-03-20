@@ -43,6 +43,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
+import org.jspecify.nullness.Nullable;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -53,7 +54,7 @@ public final class SerializeTypedAstPassTest extends CompilerTestCase {
 
   private Consumer<TypedAst> astConsumer;
   // individual test cases may override this
-  private ImmutableSet<String> typesToForwardDeclare = null;
+  private @Nullable ImmutableSet<String> typesToForwardDeclare = null;
 
   // Proto fields commonly ignored in tests because hardcoding their values is brittle
   private static final ImmutableList<FieldDescriptor> BRITTLE_TYPE_FIELDS =
@@ -86,7 +87,7 @@ public final class SerializeTypedAstPassTest extends CompilerTestCase {
 
   @Test
   public void testAst_constNumber() throws InvalidProtocolBufferException {
-    TypePointer numberType = pointerForType(PrimitiveType.NUMBER_TYPE);
+    int numberType = PrimitiveType.NUMBER_TYPE.getNumber();
     SerializationResult result = compile("const x = 5;");
 
     assertThat(result.sourceNodes.get(0))
@@ -126,6 +127,9 @@ public final class SerializeTypedAstPassTest extends CompilerTestCase {
   @Test
   public void testAst_typeSummaryFiles_areNotSerialized_orSearchedForTypes() {
     enableCreateModuleMap();
+    // SerializeTypedAstPass will drop the type summary files, which live on the externs root, to
+    // avoid serializing them.
+    allowExternsChanges();
 
     Externs closureExterns = externs(new TestExternsBuilder().addClosureExterns().build());
     SourceFile mandatorySource = SourceFile.fromCode("mandatory.js", "/* mandatory source */");
@@ -155,7 +159,7 @@ public final class SerializeTypedAstPassTest extends CompilerTestCase {
 
   @Test
   public void testAst_letString() throws InvalidProtocolBufferException {
-    TypePointer stringType = pointerForType(PrimitiveType.STRING_TYPE);
+    int stringType = PrimitiveType.STRING_TYPE.getNumber();
     SerializationResult result = compile("let s = 'hello';");
 
     assertThat(result.sourceNodes.get(0))
@@ -206,6 +210,7 @@ public final class SerializeTypedAstPassTest extends CompilerTestCase {
                         .addChild(
                             AstNode.newBuilder()
                                 .setKind(NodeKind.TAGGED_TEMPLATELIT)
+                                .setBooleanProperties(1L << NodeProperty.FREE_CALL.getNumber())
                                 .addChild(
                                     AstNode.newBuilder()
                                         .setKind(NodeKind.IDENTIFIER)
@@ -234,7 +239,7 @@ public final class SerializeTypedAstPassTest extends CompilerTestCase {
   public void testAst_numberInCast() {
     // CAST nodes in JSCompiler are a combination of a child node + JSDoc @type. Because we don't
     // serialize JSDoc @types it doesn't make sense to serialize the CAST node.
-    TypePointer unknownType = pointerForType(PrimitiveType.UNKNOWN_TYPE);
+    int unknownType = PrimitiveType.UNKNOWN_TYPE.getNumber();
     assertThat(compileToAstNode("/** @type {?} */ (1);"))
         .ignoringFieldDescriptors(BRITTLE_TYPE_FIELDS)
         .ignoringFieldDescriptors(
@@ -249,8 +254,9 @@ public final class SerializeTypedAstPassTest extends CompilerTestCase {
                         .addChild(
                             AstNode.newBuilder()
                                 .setKind(NodeKind.NUMBER_LITERAL)
-                                .addBooleanProperty(NodeProperty.IS_PARENTHESIZED)
-                                .addBooleanProperty(NodeProperty.COLOR_FROM_CAST)
+                                .setBooleanProperties(
+                                    (1L << NodeProperty.IS_PARENTHESIZED.getNumber())
+                                        | (1L << NodeProperty.COLOR_FROM_CAST.getNumber()))
                                 .setDoubleValue(1)
                                 .setType(unknownType)
                                 .build())
@@ -276,7 +282,7 @@ public final class SerializeTypedAstPassTest extends CompilerTestCase {
                         .addChild(
                             AstNode.newBuilder()
                                 .setKind(NodeKind.FUNCTION_LITERAL)
-                                .addBooleanProperty(NodeProperty.ARROW_FN)
+                                .setBooleanProperties(1L << NodeProperty.ARROW_FN.getNumber())
                                 .addChild(
                                     AstNode.newBuilder()
                                         .setKind(NodeKind.IDENTIFIER)
@@ -309,12 +315,12 @@ public final class SerializeTypedAstPassTest extends CompilerTestCase {
         .isEqualTo(
             AstNode.newBuilder()
                 .setKind(NodeKind.SOURCE_FILE)
-                .addBooleanProperty(NodeProperty.GOOG_MODULE)
+                .setBooleanProperties(1L << NodeProperty.GOOG_MODULE.getNumber())
                 // `/** @const */ var module$exports$a$b$c = {};`
                 .addChild(
                     AstNode.newBuilder()
                         .setKind(NodeKind.VAR_DECLARATION)
-                        .addBooleanProperty(NodeProperty.IS_NAMESPACE)
+                        .setBooleanProperties(1L << NodeProperty.IS_NAMESPACE.getNumber())
                         .setJsdoc(OptimizationJsdoc.newBuilder().addKind(JsdocTag.JSDOC_CONST))
                         .addChild(
                             AstNode.newBuilder()
@@ -393,7 +399,7 @@ public final class SerializeTypedAstPassTest extends CompilerTestCase {
                 .getSourceFileList()
                 .get(baseLibraryStart.getSourceFile() - 1)
                 .getFilename())
-        .isEqualTo(" [synthetic:base] ");
+        .endsWith("js/base.js");
     // children of the synthetic subtree default to the root's file [synthetic:base]
     assertThat(baseLibraryStart.getChild(0).getSourceFile()).isEqualTo(0);
     // "let s = 'hello'" defaults to the parent's file 'testcode'
@@ -416,6 +422,53 @@ public final class SerializeTypedAstPassTest extends CompilerTestCase {
 
     assertThat(result.ast.getExternsSummary().getPropNamePtrList())
         .containsAtLeast(result.findInStringPool("method"), result.findInStringPool("arg"));
+  }
+
+  @Test
+  public void serializesSourceMappingURL() throws InvalidProtocolBufferException {
+    String sourceMapTestCode =
+        lines(
+            "var X = (function () {",
+            "    function X(input) {",
+            "        this.y = input;",
+            "    }",
+            "    return X;",
+            "}());");
+
+    String code = sourceMapTestCode + "\n//# sourceMappingURL=foo.js.map";
+
+    SerializationResult result = compile(code);
+
+    LazyAst lazyAst = result.ast.getCodeAstList().get(0);
+    String sourceMappingURL = lazyAst.getSourceMappingUrl();
+
+    assertThat(sourceMappingURL).isEqualTo("foo.js.map");
+  }
+
+  @Test
+  public void doesNotSerializeInlineSourceMappingURL() throws InvalidProtocolBufferException {
+    // We do not want TypedAST to support inline source maps (which are input source maps passed
+    // by embedding a `//# sourceMappingURL=<url>` where <url> is a base64-encoded "data url").
+    String sourceMapTestCode =
+        lines(
+            "var X = (function () {",
+            "    function X(input) {",
+            "        this.y = input;",
+            "    }",
+            "    return X;",
+            "}());");
+
+    String base64EncodedSourceMappingURL =
+        "data:application/json;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoiZm9vLmpzIiwic291cmNlUm9vdCI6IiIsInNvdXJjZXMiOlsiLi4vdGVzdC9mb28udHMiXSwic291cmNlc0NvbnRlbnQiOlsidmFyIEEgPSAoZnVuY3Rpb24gKCkge1xuICAgIGZ1bmN0aW9uIEEoaW5wdXQpIHtcbiAgICAgICAgdGhpcy5hID0gaW5wdXQ7XG4gICAgfVxuICAgIHJldHVybiBBO1xufSgpKTtcbmNvbnNvbGUubG9nKG5ldyBBKDEpKTsiXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IkFBQUE7SUFHRSxXQUFZLEtBQWE7UUFDdkIsSUFBSSxDQUFDLENBQUMsR0FBRyxLQUFLLENBQUM7SUFDakIsQ0FBQztJQUNILFFBQUM7QUFBRCxDQUFDLEFBTkQsSUFNQztBQUVELE9BQU8sQ0FBQyxHQUFHLENBQUMsSUFBSSxDQUFDLENBQUMsQ0FBQyxDQUFDLENBQUMsQ0FBQyJ9";
+
+    String code = sourceMapTestCode + "\n//# sourceMappingURL=" + base64EncodedSourceMappingURL;
+
+    SerializationResult result = compile(code);
+
+    LazyAst lazyAst = result.ast.getCodeAstList().get(0);
+    String sourceMappingURL = lazyAst.getSourceMappingUrl();
+
+    assertThat(sourceMappingURL).isEmpty(); // Do not serizile this base-64 sourceMappingURL.
   }
 
   private AstNode compileToAstNode(String source) {
@@ -484,10 +537,6 @@ public final class SerializeTypedAstPassTest extends CompilerTestCase {
 
   private SerializationResult compileWithExterns(String externs, String source) {
     return compile(externs(externs), srcs(source));
-  }
-
-  private static TypePointer pointerForType(PrimitiveType primitive) {
-    return TypePointer.newBuilder().setPoolOffset(primitive.getNumber()).build();
   }
 
   private void generateDiagnosticFiles() {

@@ -35,6 +35,7 @@ public final class Es6SplitVariableDeclarationsTest extends CompilerTestCase {
     enableTypeCheck();
     enableTypeInfoValidation();
     replaceTypesWithColors();
+    enableMultistageCompilation();
     setLanguageOut(LanguageMode.ECMASCRIPT5);
 
     // there are a lot of 'property x never defined on ?' warnings caused by object destructuring
@@ -78,7 +79,7 @@ public final class Es6SplitVariableDeclarationsTest extends CompilerTestCase {
 
   @Test
   public void testCannotSplitLabeledDeclaration() {
-    testError("label: var   [a] = [], b = 3;", Es6ToEs3Util.CANNOT_CONVERT_YET);
+    testError("label: var   [a] = [], b = 3;", TranspilationUtil.CANNOT_CONVERT_YET);
     // `label: let   [a] = [], b = 3;` and `label: const [a] = [], b = 3;` are syntax errors
   }
 

@@ -335,6 +335,16 @@ public final class TypeValidatorTest extends CompilerTestCase {
   }
 
   @Test
+  public void testUnionsMismatch() {
+    testWarning(
+        "/** @param {number|string} x */\n"
+            + "function f(x) {}\n"
+            + "f(/** @type {boolean|string} */ ('a'));",
+        TYPE_MISMATCH_WARNING);
+    this.assertThatRecordedMismatches().isEmpty();
+  }
+
+  @Test
   public void testModuloNullUndef1() {
     testSame(
         srcs(
@@ -650,7 +660,6 @@ public final class TypeValidatorTest extends CompilerTestCase {
 
   @Test
   public void testDuplicateSuppression_class() {
-    enableTranspile();
     testWarning(
         lines(
             "class X { constructor() {} }", //

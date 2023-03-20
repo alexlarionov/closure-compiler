@@ -17,6 +17,7 @@
 package com.google.javascript.jscomp.serialization;
 
 import com.google.common.annotations.GwtIncompatible;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.jscomp.SourceFile;
 import com.google.javascript.jscomp.parsing.parser.FeatureSet;
@@ -29,7 +30,7 @@ import com.google.protobuf.CodedInputStream;
 import com.google.protobuf.ExtensionRegistry;
 import java.io.IOException;
 import java.math.BigInteger;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  * Class that deserializes an AstNode-tree representing a SCRIPT into a Node-tree.
@@ -38,21 +39,23 @@ import javax.annotation.Nullable;
  * to only a single SCRIPT. The other deserialized content must be provided beforehand.
  */
 @GwtIncompatible("protobuf.lite")
-public final class ScriptNodeDeserializer {
+final class ScriptNodeDeserializer {
 
   private final SourceFile sourceFile;
   private final ByteString scriptBytes;
-  private final ColorPool.ShardView colorPoolShard;
+  private final String sourceMappingURL;
+  private final Optional<ColorPool.ShardView> colorPoolShard;
   private final StringPool stringPool;
   private final ImmutableList<SourceFile> filePool;
 
-  public ScriptNodeDeserializer(
+  ScriptNodeDeserializer(
       LazyAst ast,
       StringPool stringPool,
-      ColorPool.ShardView colorPoolShard,
+      Optional<ColorPool.ShardView> colorPoolShard,
       ImmutableList<SourceFile> filePool) {
     this.scriptBytes = ast.getScript();
     this.sourceFile = filePool.get(ast.getSourceFile() - 1);
+    this.sourceMappingURL = ast.getSourceMappingUrl();
     this.colorPoolShard = colorPoolShard;
     this.stringPool = stringPool;
     this.filePool = filePool;
@@ -88,7 +91,7 @@ public final class ScriptNodeDeserializer {
       return ScriptNodeDeserializer.this;
     }
 
-    private Node visit(AstNode astNode, Node parent, @Nullable Node sourceFileTemplate) {
+    private Node visit(AstNode astNode, @Nullable Node parent, @Nullable Node sourceFileTemplate) {
       if (sourceFileTemplate == null || astNode.getSourceFile() != 0) {
         // 0 == 'not set'
         sourceFileTemplate =
@@ -101,18 +104,21 @@ public final class ScriptNodeDeserializer {
 
       Node n = this.owner().deserializeSingleNode(astNode);
       n.setStaticSourceFileFrom(sourceFileTemplate);
-      if (astNode.hasType()) {
-        n.setColor(this.owner().colorPoolShard.getColor(astNode.getType()));
+      if (astNode.hasType() && this.owner().colorPoolShard.isPresent()) {
+        n.setColor(this.owner().colorPoolShard.get().getColor(astNode.getType()));
       }
-      if (astNode.getBooleanPropertyCount() > 0) {
-        n.deserializeProperties(astNode.getBooleanPropertyList());
+      long properties = astNode.getBooleanProperties();
+      if (properties > 0) {
+        n.deserializeProperties(filterOutCastProp(astNode.getBooleanProperties()));
       }
       n.setJSDocInfo(JSDocSerializer.deserializeJsdoc(astNode.getJsdoc(), stringPool));
       n.setLinenoCharno(currentLine, currentColumn);
       this.previousLine = currentLine;
       this.previousColumn = currentColumn;
 
-      for (AstNode child : astNode.getChildList()) {
+      int children = astNode.getChildCount();
+      for (int i = 0; i < children; i++) {
+        AstNode child = astNode.getChild(i);
         Node deserializedChild = this.visit(child, n, sourceFileTemplate);
         n.addChildToBack(deserializedChild);
         // record script features here instead of while visiting child because some features are
@@ -150,6 +156,14 @@ public final class ScriptNodeDeserializer {
           }
           return;
 
+        case PARAM_LIST:
+        case CALL:
+        case NEW:
+          if (node.hasTrailingComma()) {
+            this.addScriptFeature(Feature.TRAILING_COMMA_IN_PARAM_LIST);
+          }
+          return;
+
         case STRING_KEY:
           if (node.isShorthandProperty()) {
             this.addScriptFeature(Feature.EXTENDED_OBJECT_LITERALS);
@@ -173,6 +187,12 @@ public final class ScriptNodeDeserializer {
           this.addScriptFeature(Feature.SETTER);
           if (parent.isClassMembers()) {
             this.addScriptFeature(Feature.CLASS_GETTER_SETTER);
+          }
+          return;
+
+        case BLOCK:
+          if (parent.isClassMembers()) {
+            this.addScriptFeature(Feature.CLASS_STATIC_BLOCK);
           }
           return;
 
@@ -200,6 +220,7 @@ public final class ScriptNodeDeserializer {
           this.addScriptFeature(Feature.BIGINT);
           return;
         case EXPONENT:
+        case ASSIGN_EXPONENT:
           this.addScriptFeature(Feature.EXPONENT_OP);
           return;
         case TAGGED_TEMPLATELIT:
@@ -225,7 +246,10 @@ public final class ScriptNodeDeserializer {
           return;
         case ASSIGN_OR:
         case ASSIGN_AND:
+          this.addScriptFeature(Feature.LOGICAL_ASSIGNMENT);
+          return;
         case ASSIGN_COALESCE:
+          this.addScriptFeature(Feature.NULL_COALESCE_OP);
           this.addScriptFeature(Feature.LOGICAL_ASSIGNMENT);
           return;
 
@@ -276,6 +300,14 @@ public final class ScriptNodeDeserializer {
     private void addScriptFeature(Feature x) {
       this.scriptFeatures = this.scriptFeatures.with(x);
     }
+  }
+
+  public String getSourceMappingURL() {
+    return sourceMappingURL;
+  }
+
+  public SourceFile getSourceFile() {
+    return sourceFile;
   }
 
   /**
@@ -557,7 +589,7 @@ public final class ScriptNodeDeserializer {
         return IR.stringKey(getString(n));
       case QUOTED_STRING_KEY:
         Node quotedStringKey = IR.stringKey(getString(n));
-        quotedStringKey.setQuotedString();
+        quotedStringKey.setQuotedStringKey();
         return quotedStringKey;
       case CASE:
         return new Node(Token.CASE);
@@ -580,14 +612,14 @@ public final class ScriptNodeDeserializer {
       case QUOTED_GETTER_DEF:
         Node getterDef = Node.newString(Token.GETTER_DEF, getString(n));
         if (n.getKind().equals(NodeKind.QUOTED_GETTER_DEF)) {
-          getterDef.setQuotedString();
+          getterDef.setQuotedStringKey();
         }
         return getterDef;
       case RENAMABLE_SETTER_DEF:
       case QUOTED_SETTER_DEF:
         Node setterDef = Node.newString(Token.SETTER_DEF, getString(n));
         if (n.getKind().equals(NodeKind.QUOTED_SETTER_DEF)) {
-          setterDef.setQuotedString();
+          setterDef.setQuotedStringKey();
         }
         return setterDef;
 
@@ -617,5 +649,18 @@ public final class ScriptNodeDeserializer {
         break;
     }
     throw new IllegalStateException("Unexpected serialized kind for AstNode: " + n);
+  }
+
+  /**
+   * If no colors are being deserialized, filters out any NodeProperty.COLOR_BEFORE_CASTs
+   *
+   * <p>This is because it doesn't make sense to have that property present on nodes that don't have
+   * colors.
+   */
+  private long filterOutCastProp(long nodeProperties) {
+    if (colorPoolShard.isPresent()) {
+      return nodeProperties; // we are deserializing colors, so this is fine.
+    }
+    return nodeProperties & ~(1L << NodeProperty.COLOR_FROM_CAST.getNumber());
   }
 }

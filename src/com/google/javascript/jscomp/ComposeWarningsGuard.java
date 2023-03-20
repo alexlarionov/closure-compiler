@@ -30,7 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  * WarningsGuard that represents just a chain of other guards. For example we could have following
@@ -107,8 +107,7 @@ public final class ComposeWarningsGuard extends WarningsGuard {
   }
 
   @Override
-  @Nullable
-  public CheckLevel level(JSError error) {
+  public @Nullable CheckLevel level(JSError error) {
     for (WarningsGuard guard : guards) {
       CheckLevel newLevel = guard.level(error);
       if (newLevel != null) {

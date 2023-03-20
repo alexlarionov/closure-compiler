@@ -16,6 +16,7 @@
 
 package com.google.javascript.jscomp;
 
+import org.jspecify.nullness.Nullable;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -33,7 +34,7 @@ public final class RenameLocalVarsTest extends CompilerTestCase {
   private String prefix = DEFAULT_PREFIX;
 
   // NameGenerator to use, or null for a default.
-  private DefaultNameGenerator nameGenerator = null;
+  private @Nullable DefaultNameGenerator nameGenerator = null;
 
   @Override
   protected CompilerPass getProcessor(Compiler compiler) {
@@ -115,6 +116,11 @@ public final class RenameLocalVarsTest extends CompilerTestCase {
   @Test
   public void testDoNotRenameExportedName() {
     testSame("_foo()");
+  }
+
+  @Test
+  public void testRenameParamsWithLeadingUnderscores() {
+    test("function Foo(_v1, _v2) {return _v1;} Foo();", "function Foo(a, b) {return a;} Foo();");
   }
 
   @Test

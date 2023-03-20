@@ -21,7 +21,7 @@ import static com.google.common.base.Preconditions.checkState;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.Node;
 import java.util.Set;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  * The syntactic scope creator scans the parse tree to create a Scope object containing all the
@@ -70,8 +70,7 @@ public final class SyntacticScopeCreator implements ScopeCreator {
     private final RedeclarationHandler redeclarationHandler;
 
     // Will be null, when a detached node is traversed.
-    @Nullable
-    private InputId inputId;
+    private @Nullable InputId inputId;
     private final Set<Node> changeRootSet;
 
     ScopeScanner(AbstractCompiler compiler, Scope scope) {
@@ -79,8 +78,10 @@ public final class SyntacticScopeCreator implements ScopeCreator {
     }
 
     ScopeScanner(
-        AbstractCompiler compiler, RedeclarationHandler redeclarationHandler, Scope scope,
-        Set<Node> changeRootSet) {
+        AbstractCompiler compiler,
+        RedeclarationHandler redeclarationHandler,
+        Scope scope,
+        @Nullable Set<Node> changeRootSet) {
       this.compiler = compiler;
       this.redeclarationHandler = redeclarationHandler;
       this.scope = scope;
@@ -143,11 +144,17 @@ public final class SyntacticScopeCreator implements ScopeCreator {
           return;
 
         case BLOCK:
-          if (NodeUtil.isFunctionBlock(n)) {
+          if (NodeUtil.isFunctionBlock(n) || NodeUtil.isClassStaticBlock(n)) {
             scanVars(n, scope, scope);
           } else {
             scanVars(n, null, scope);
           }
+          return;
+
+        case COMPUTED_FIELD_DEF:
+        case MEMBER_FIELD_DEF:
+          // MEMBER_FIELD_DEF and COMPUTED_FIELD_DEF scopes only created to scope `this` and `super`
+          // correctly
           return;
 
         default:
@@ -156,8 +163,12 @@ public final class SyntacticScopeCreator implements ScopeCreator {
     }
 
     private void declareLHS(Scope s, Node n) {
-      for (Node lhs : NodeUtil.findLhsNodesInNode(n)) {
-        declareVar(s, lhs);
+      if (n.hasOneChild() && n.getFirstChild().isName()) {
+        // NAME is most common and trivial case.  This code is hot so it is worth special casing.
+        // to avoid extra GC and cpu cycles.
+        declareVar(s, n.getFirstChild());
+      } else {
+        NodeUtil.visitLhsNodesInNode(n, (lhs) -> declareVar(s, lhs));
       }
     }
 

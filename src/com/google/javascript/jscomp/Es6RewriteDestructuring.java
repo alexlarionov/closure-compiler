@@ -20,6 +20,7 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.javascript.jscomp.AstFactory.type;
 import static com.google.javascript.jscomp.DiagnosticType.error;
 
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.javascript.jscomp.colors.StandardColors;
 import com.google.javascript.jscomp.parsing.ParsingUtil;
 import com.google.javascript.jscomp.parsing.parser.FeatureSet;
@@ -121,6 +122,7 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Co
       this.compiler = compiler;
     }
 
+    @CanIgnoreReturnValue
     public Builder setDestructuringRewriteMode(ObjectDestructuringRewriteMode rewriteMode) {
       this.rewriteMode = rewriteMode;
       return this;
@@ -145,13 +147,17 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Co
   @Override
   public void process(Node externs, Node root) {
     checkState(patternNestingStack.isEmpty());
-    TranspilationPasses.processTranspile(compiler, root, featuresToTriggerRunningPass, this);
+    NodeTraversal.traverse(compiler, root, this);
     TranspilationPasses.maybeMarkFeaturesAsTranspiledAway(compiler, featuresToMarkAsRemoved);
     checkState(patternNestingStack.isEmpty());
   }
 
   @Override
   public boolean shouldTraverse(NodeTraversal t, Node n, Node parent) {
+    if (n.isScript()) {
+      FeatureSet scriptFeatures = NodeUtil.getFeatureSetOfScript(n);
+      return scriptFeatures.containsAtLeastOneOf(featuresToTriggerRunningPass);
+    }
     switch (n.getToken()) {
       case FUNCTION:
         ensureArrowFunctionsHaveBlockBodies(t, n);
@@ -282,14 +288,13 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Co
   }
 
   /**
-   * Replace a destructuring pattern parameter with a a temporary parameter name and add a new
-   * local variable declaration to the function assigning the temporary parameter to the pattern.
+   * Replace a destructuring pattern parameter with a a temporary parameter name and add a new local
+   * variable declaration to the function assigning the temporary parameter to the pattern.
    *
-   * <p> Note: Rewrites of variable declaration destructuring will happen later to rewrite
-   * this declaration as non-destructured code.
-   * @param function
+   * <p>Note: Rewrites of variable declaration destructuring will happen later to rewrite this
+   * declaration as non-destructured code.
+   *
    * @param insertSpot The local variable declaration will be inserted after this statement.
-   * @param patternParam
    * @param tempVarName the name to use for the temporary variable
    * @return the declaration statement that was generated for the local variable
    */
@@ -435,7 +440,7 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Co
         // const {a: b} = obj;
         Node tempVarNameNode = astFactory.createName(tempVarName, tempVarType);
         Node getprop =
-            child.isQuotedString()
+            child.isQuotedStringKey()
                 ? astFactory.createGetElem(
                     tempVarNameNode, astFactory.createString(child.getString()))
                 : astFactory.createGetProp(tempVarNameNode, child.getString(), tempVarType);
@@ -586,7 +591,7 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Co
     switch (property.getToken()) {
       case STRING_KEY:
         get =
-            property.isQuotedString()
+            property.isQuotedStringKey()
                 ? astFactory.createGetElem(
                     restTempVarNameNode, astFactory.createString(property.getString()))
                 : astFactory.createGetPropWithUnknownType(

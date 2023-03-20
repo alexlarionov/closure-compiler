@@ -17,18 +17,26 @@
 package com.google.javascript.jscomp.serialization;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
 import com.google.common.annotations.GwtIncompatible;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSetMultimap;
 import com.google.javascript.jscomp.AbstractCompiler;
+import com.google.javascript.jscomp.NodeTraversal;
 import com.google.javascript.jscomp.NodeUtil;
 import com.google.javascript.jscomp.SourceFile;
+import com.google.javascript.jscomp.colors.Color;
+import com.google.javascript.jscomp.colors.ColorId;
+import com.google.javascript.jscomp.colors.ColorRegistry;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.jstype.JSType;
 import java.util.ArrayDeque;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
+import org.jspecify.nullness.Nullable;
 
 /** Transforms a compiler AST into a serialized TypedAst object. */
 @GwtIncompatible("protobuf.lite")
@@ -42,15 +50,11 @@ final class TypedAstSerializer {
   private final ArrayDeque<SourceFile> subtreeSourceFiles = new ArrayDeque<>();
   private final LinkedHashMap<SourceFile, Integer> sourceFilePointers = new LinkedHashMap<>();
 
-  private IdentityHashMap<JSType, TypePointer> typesToPointers = null;
+  private @Nullable TypeSerializer typeSerializer = null;
 
-  TypedAstSerializer(AbstractCompiler compiler) {
+  TypedAstSerializer(AbstractCompiler compiler, SerializationOptions serializationMode) {
     this.compiler = compiler;
-    this.serializationMode =
-        this.compiler.isDebugLoggingEnabled()
-            ? SerializationOptions.INCLUDE_DEBUG_INFO_AND_EXPENSIVE_VALIDITY_CHECKS
-            : SerializationOptions.SKIP_DEBUG_INFO;
-    ;
+    this.serializationMode = serializationMode;
   }
 
   /** Transforms the given compiler AST root nodes into into a serialized TypedAst object */
@@ -58,16 +62,15 @@ final class TypedAstSerializer {
     checkArgument(externsRoot.isRoot());
     checkArgument(jsRoot.isRoot());
 
-    final TypePool typePool;
-    if (this.compiler.hasTypeCheckingRun() && !this.compiler.isTypeRegistryCleared()) {
-      SerializeTypesToPointers typeSerializer =
-          SerializeTypesToPointers.create(this.compiler, this.stringPool, this.serializationMode);
-      typeSerializer.gatherTypesOnAst(jsRoot.getParent());
-      this.typesToPointers = typeSerializer.getTypePointersByJstype();
-      typePool = typeSerializer.getTypePool();
+    if (this.compiler.hasOptimizationColors()) {
+      this.typeSerializer = createColorTypeSerializer(compiler, serializationMode, stringPool);
+    } else if (this.compiler.hasTypeCheckingRun()) {
+      // The AST has JSTypes, but we want to serialize colors instead.
+      // TODO(bradfordcsmith): Change this branch to throw an error and delete the related logic.
+      //     Nothing should be using it anymore.
+      this.typeSerializer = createJSTypeSerializer(compiler, serializationMode, stringPool);
     } else {
-      this.typesToPointers = new IdentityHashMap<>();
-      typePool = TypePool.getDefaultInstance();
+      this.typeSerializer = new NoOpTypeSerializer();
     }
 
     TypedAst.Builder builder = TypedAst.newBuilder();
@@ -101,7 +104,7 @@ final class TypedAstSerializer {
     }
 
     return builder
-        .setTypePool(typePool)
+        .setTypePool(typeSerializer.generateTypePool())
         .setStringPool(this.stringPool.build().toProto())
         .setSourceFilePool(sourceFiles)
         .build();
@@ -115,10 +118,16 @@ final class TypedAstSerializer {
     AstNode scriptProto = visit(script);
     this.subtreeSourceFiles.clear();
 
-    return LazyAst.newBuilder()
-        .setScript(scriptProto.toByteString())
-        .setSourceFile(sourceFile)
-        .build();
+    String sourceMappingURL = compiler.getInputSourceMappingURL(script.getSourceFileName());
+
+    LazyAst.Builder lazyAstBuilder =
+        LazyAst.newBuilder().setScript(scriptProto.toByteString()).setSourceFile(sourceFile);
+
+    if (sourceMappingURL != null) {
+      lazyAstBuilder.setSourceMappingUrl(sourceMappingURL);
+    }
+
+    return lazyAstBuilder.build();
   }
 
   private AstNode.Builder createWithPositionInfo(Node n) {
@@ -144,7 +153,7 @@ final class TypedAstSerializer {
     }
     builder.setKind(kindTranslator(n));
     valueTranslator(builder, n);
-    builder.addAllBooleanProperty(n.serializeProperties());
+    builder.setBooleanProperties(n.serializeProperties());
     int sourceFile = getSourceFilePointer(n);
     builder.setSourceFile(sourceFile);
 
@@ -184,16 +193,7 @@ final class TypedAstSerializer {
   }
 
   private void addType(Node n, AstNode.Builder builder) {
-    if (!compiler.hasTypeCheckingRun()) {
-      // early return because some Nodes have non-null JSTypes even when typechecking has not run
-      // TODO(b/185918953): enforce that nodes only have types after typechecking.
-      return;
-    }
-
-    JSType type = n.getJSType();
-    if (type != null) {
-      builder.setType(this.typesToPointers.get(type));
-    }
+    typeSerializer.addTypeForNode(n, builder);
   }
 
   private void valueTranslator(AstNode.Builder builder, Node n) {
@@ -484,7 +484,7 @@ final class TypedAstSerializer {
       case PARAM_LIST:
         return NodeKind.PARAMETER_LIST;
       case STRING_KEY:
-        return n.isQuotedString() ? NodeKind.QUOTED_STRING_KEY : NodeKind.RENAMABLE_STRING_KEY;
+        return n.isQuotedStringKey() ? NodeKind.QUOTED_STRING_KEY : NodeKind.RENAMABLE_STRING_KEY;
       case CASE:
         return NodeKind.CASE;
       case DEFAULT_CASE:
@@ -502,9 +502,9 @@ final class TypedAstSerializer {
       case DEFAULT_VALUE:
         return NodeKind.DEFAULT_VALUE;
       case GETTER_DEF:
-        return n.isQuotedString() ? NodeKind.QUOTED_GETTER_DEF : NodeKind.RENAMABLE_GETTER_DEF;
+        return n.isQuotedStringKey() ? NodeKind.QUOTED_GETTER_DEF : NodeKind.RENAMABLE_GETTER_DEF;
       case SETTER_DEF:
-        return n.isQuotedString() ? NodeKind.QUOTED_SETTER_DEF : NodeKind.RENAMABLE_SETTER_DEF;
+        return n.isQuotedStringKey() ? NodeKind.QUOTED_SETTER_DEF : NodeKind.RENAMABLE_SETTER_DEF;
 
       case IMPORT_SPECS:
         return NodeKind.IMPORT_SPECS;
@@ -580,5 +580,150 @@ final class TypedAstSerializer {
         break;
     }
     throw new IllegalStateException("Unserializable token for node: " + n);
+  }
+
+  /** Used to provide TypePointers for serializing Nodes and to generate the TypePool. */
+  interface TypeSerializer {
+    /** If appropriate for `node` add a `Integer` to `astNodeBuilder` */
+    void addTypeForNode(Node node, AstNode.Builder astNodeBuilder);
+
+    /** Returns a `TypePool` containing the types used by `addTypeForNode()` */
+    TypePool generateTypePool();
+  }
+
+  /** Used when type checking has not been done. */
+  private static class NoOpTypeSerializer implements TypeSerializer {
+
+    @Override
+    public void addTypeForNode(Node node, AstNode.Builder astNodeBuilder) {
+      // Do nothing.
+    }
+
+    @Override
+    public TypePool generateTypePool() {
+      return TypePool.getDefaultInstance(); // empty TypePool
+    }
+  }
+
+  /** Create the `TypeSerializer` appropriate for an AST that contains JSTypes. */
+  private static JSTypeSerializer createJSTypeSerializer(
+      AbstractCompiler compiler,
+      SerializationOptions serializationMode,
+      StringPool.Builder stringPoolBuilder) {
+    final SerializeTypesToPointers serializeTypesToPointers =
+        SerializeTypesToPointers.create(compiler, stringPoolBuilder, serializationMode);
+    // Gather and serialize all the types now.
+    serializeTypesToPointers.gatherTypesOnAst(compiler.getRoot());
+    return new JSTypeSerializer(
+        serializeTypesToPointers.getTypePointersByJstype(), serializeTypesToPointers.getTypePool());
+  }
+
+  /** Used when the AST's JSTypes have not been converted to Colors */
+  private static class JSTypeSerializer implements TypeSerializer {
+    // Everything is pre-calculated with this form of serialization.
+    private final IdentityHashMap<JSType, Integer> typesToPointers;
+    private final TypePool typePool;
+
+    private JSTypeSerializer(IdentityHashMap<JSType, Integer> typesToPointers, TypePool typePool) {
+      this.typesToPointers = typesToPointers;
+      this.typePool = typePool;
+    }
+
+    @Override
+    public void addTypeForNode(Node node, AstNode.Builder astNodeBuilder) {
+      JSType type = node.getJSType();
+      if (type != null) {
+        astNodeBuilder.setType(
+            checkNotNull(typesToPointers.get(type), "cannot find pointer for %s", type));
+      }
+    }
+
+    @Override
+    public TypePool generateTypePool() {
+      return typePool;
+    }
+  }
+
+  /** Creates a `TypeSerializer` that knows how to serialize `Color`s from the AST. */
+  private ColorTypeSerializer createColorTypeSerializer(
+      AbstractCompiler compiler,
+      SerializationOptions serializationMode,
+      StringPool.Builder stringPoolBuilder) {
+    // Gather all the property names that are actually used in the AST.
+    final ImmutableSet<String> usedPropertyNames = collectUsedPropertyNames(compiler);
+    final ColorSerializer colorSerializer =
+        new ColorSerializer(
+            serializationMode,
+            // lookup / allocate strings from the shared string pool
+            stringPoolBuilder::put,
+            // only include property names known to be used in the AST
+            usedPropertyNames::contains);
+    return new ColorTypeSerializer(colorSerializer, compiler.getColorRegistry());
+  }
+
+  /** Add all unquoted property names appearing in the AST. */
+  private static ImmutableSet<String> collectUsedPropertyNames(AbstractCompiler compiler) {
+    final ImmutableSet.Builder<String> propertyNamesBuilder = ImmutableSet.builder();
+
+    NodeTraversal.traverse(
+        compiler,
+        compiler.getRoot(),
+        new NodeTraversal.Callback() {
+          @Override
+          public boolean shouldTraverse(NodeTraversal t, Node n, Node parent) {
+            // We won't serialize type summary files, so we don't care about property names
+            // appearing in them.
+            return !n.isScript() || !NodeUtil.isFromTypeSummary(n);
+          }
+
+          @Override
+          public void visit(NodeTraversal t, Node n, Node parent) {
+            switch (n.getToken()) {
+              case GETPROP: // "name" from (someObject.name)
+              case OPTCHAIN_GETPROP: // "name" from (someObject?.name)
+                propertyNamesBuilder.add(n.getString());
+                break;
+              case STRING_KEY: // "name" from obj = {name: 0}
+              case MEMBER_FUNCTION_DEF: // "name" from class C { name() {} }
+              case MEMBER_FIELD_DEF: // "name" from class C { name = 0; }
+              case GETTER_DEF: // "name" from class C { get name() {} }
+              case SETTER_DEF: // "name" from class C { set name(n) {} }
+                if (!n.isQuotedStringKey()) {
+                  propertyNamesBuilder.add(n.getString());
+                }
+                break;
+              default:
+            }
+          }
+        });
+    return propertyNamesBuilder.build();
+  }
+
+  /** Used when the AST has `Color`s rather than `JSType`s */
+  private static class ColorTypeSerializer implements TypeSerializer {
+    private final ColorSerializer colorSerializer;
+    private final ColorRegistry colorRegistry;
+
+    private ColorTypeSerializer(ColorSerializer colorSerializer, ColorRegistry colorRegistry) {
+      this.colorSerializer = colorSerializer;
+      this.colorRegistry = colorRegistry;
+    }
+
+    @Override
+    public void addTypeForNode(Node node, AstNode.Builder astNodeBuilder) {
+      Color color = node.getColor();
+      if (color != null) {
+        astNodeBuilder.setType(colorSerializer.addColor(color));
+      }
+    }
+
+    @Override
+    public TypePool generateTypePool() {
+      final ImmutableSetMultimap<ColorId, String> mismatchLocationsForDebugging =
+          colorRegistry.getMismatchLocationsForDebugging();
+      return colorSerializer.generateTypePool(
+          colorRegistry::getDisambiguationSupertypes,
+          color -> mismatchLocationsForDebugging.get(color.getId()));
+    }
   }
 }

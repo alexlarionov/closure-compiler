@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import org.jspecify.nullness.Nullable;
 
 /**
  * A class to transform the body of a function into a generic block suitable
@@ -66,8 +67,13 @@ class FunctionToBlockMutator {
   Node mutate(String fnName, Node fnNode, Node callNode,
       String resultName, boolean needsDefaultResult, boolean isCallInLoop) {
     return mutateInternal(
-        fnName, fnNode, callNode, resultName, needsDefaultResult, isCallInLoop,
-        /* renameLocals */ true);
+        fnName,
+        fnNode,
+        callNode,
+        resultName,
+        needsDefaultResult,
+        isCallInLoop,
+        /* renameLocals= */ true);
   }
 
   /**
@@ -98,7 +104,7 @@ class FunctionToBlockMutator {
         resultName,
         needsDefaultResult,
         isCallInLoop,
-        /* renameLocals */ false);
+        /* renameLocals= */ false);
   }
 
   /**
@@ -175,11 +181,10 @@ class FunctionToBlockMutator {
     return injectableBlock;
   }
 
-
   /**
    * @param n The node to inspect
    */
-  private static Node rewriteFunctionDeclarations(Node n) {
+  private static @Nullable Node rewriteFunctionDeclarations(Node n) {
     if (n.isFunction()) {
       if (NodeUtil.isFunctionDeclaration(n)) {
         // Rewrite: function f() {} ==> var f = function() {}
@@ -460,15 +465,10 @@ class FunctionToBlockMutator {
   }
 
   /**
-   * Replace the 'return' statement with its child expression.
-   *   "return foo()" becomes "foo()" or "resultName = foo()"
-   *   "return" is removed or becomes "resultName = void 0".
-   *
-   * @param block
-   * @param resultName
+   * Replace the 'return' statement with its child expression. "return foo()" becomes "foo()" or
+   * "resultName = foo()" "return" is removed or becomes "resultName = void 0".
    */
-  private static void convertLastReturnToStatement(
-      Node block, String resultName) {
+  private static void convertLastReturnToStatement(Node block, String resultName) {
     Node ret = block.getLastChild();
     checkArgument(ret.isReturn());
     Node resultNode = getReplacementReturnStatement(ret, resultName);
@@ -540,13 +540,12 @@ class FunctionToBlockMutator {
   }
 
   /**
-   * Replace the 'return' statement with its child expression.
-   *   "return foo()" becomes "{foo(); break;}" or
-   *      "{resultName = foo(); break;}"
-   *   "return" becomes {break;} or "{resultName = void 0;break;}".
+   * Replace the 'return' statement with its child expression. "return foo()" becomes "{foo();
+   * break;}" or "{resultName = foo(); break;}" "return" becomes {break;} or "{resultName = void
+   * 0;break;}".
    */
-  private static Node replaceReturnWithBreak(Node current, Node parent,
-      String resultName, String labelName) {
+  private static Node replaceReturnWithBreak(
+      Node current, @Nullable Node parent, String resultName, String labelName) {
 
     if (current.isFunction()
         || current.isExprResult()) {

@@ -34,7 +34,7 @@ import com.google.javascript.jscomp.GoogleCodingConvention;
 import com.google.javascript.jscomp.JSError;
 import com.google.javascript.jscomp.SourceFile;
 import java.util.Collection;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
@@ -75,8 +75,7 @@ public class ErrorToFixMapperTest {
   @AutoValue
   abstract static class ExpectedFix {
     /** Optional string describing the fix. */
-    @Nullable
-    abstract String description();
+    abstract @Nullable String description();
     /** What the code should look like after applying the fix. */
     abstract String fixedCode();
 

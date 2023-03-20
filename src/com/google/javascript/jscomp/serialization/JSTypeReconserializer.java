@@ -29,14 +29,12 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.LinkedHashMultimap;
-import com.google.common.collect.Multimap;
-import com.google.common.collect.Streams;
+import com.google.common.collect.SetMultimap;
 import com.google.javascript.jscomp.InvalidatingTypes;
 import com.google.javascript.jscomp.colors.Color;
 import com.google.javascript.jscomp.colors.ColorId;
 import com.google.javascript.jscomp.colors.StandardColors;
 import com.google.javascript.rhino.ClosurePrimitive;
-import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.jstype.FunctionType;
 import com.google.javascript.rhino.jstype.JSType;
 import com.google.javascript.rhino.jstype.JSTypeNative;
@@ -47,9 +45,17 @@ import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.TreeSet;
-import javax.annotation.Nullable;
+import java.util.function.Predicate;
+import org.jspecify.nullness.Nullable;
 
+/**
+ * Takes {@link JSType}s produced by JSCompiler's typechecker and deduplicates and serializes them
+ * into the TypedAST colors format.
+ *
+ * <p>The deduplication phase is called "reconciliation". It's necessary because the the TypedAST
+ * colors format is simpler than the {@link JSType} format, and so there is a many-to-one
+ * relationship between {@link JSType}s and TypedAST colors.
+ */
 final class JSTypeReconserializer {
 
   private final JSTypeRegistry registry;
@@ -57,13 +63,14 @@ final class JSTypeReconserializer {
   private final InvalidatingTypes invalidatingTypes;
   private final StringPool.Builder stringPoolBuilder;
   private final JSTypeColorIdHasher hasher;
+  private final Predicate<String> shouldPropagatePropertyName;
 
   // Cache some commonly used types.
   private final SeenTypeRecord unknownRecord;
 
   private final IdentityHashMap<JSType, SeenTypeRecord> typeToRecordCache = new IdentityHashMap<>();
   private final LinkedHashMap<ColorId, SeenTypeRecord> seenTypeRecords = new LinkedHashMap<>();
-  private final Multimap<TypePointer, TypePointer> disambiguateEdges = LinkedHashMultimap.create();
+  private final SetMultimap<Integer, Integer> disambiguateEdges = LinkedHashMultimap.create();
 
   private State state = State.COLLECTING_TYPES;
 
@@ -87,11 +94,12 @@ final class JSTypeReconserializer {
           // Smoosh top-like objects into a single type.
           .put(JSTypeNative.FUNCTION_FUNCTION_TYPE, StandardColors.TOP_OBJECT)
           .put(JSTypeNative.FUNCTION_PROTOTYPE, StandardColors.TOP_OBJECT)
+          .put(JSTypeNative.FUNCTION_INSTANCE_PROTOTYPE, StandardColors.TOP_OBJECT)
           .put(JSTypeNative.FUNCTION_TYPE, StandardColors.TOP_OBJECT)
           .put(JSTypeNative.OBJECT_FUNCTION_TYPE, StandardColors.TOP_OBJECT)
           .put(JSTypeNative.OBJECT_PROTOTYPE, StandardColors.TOP_OBJECT)
           .put(JSTypeNative.OBJECT_TYPE, StandardColors.TOP_OBJECT)
-          .build();
+          .buildOrThrow();
 
   private enum State {
     COLLECTING_TYPES,
@@ -103,11 +111,13 @@ final class JSTypeReconserializer {
       JSTypeRegistry registry,
       InvalidatingTypes invalidatingTypes,
       StringPool.Builder stringPoolBuilder,
+      Predicate<String> shouldPropagatePropertyName,
       SerializationOptions serializationMode) {
     this.registry = registry;
     this.hasher = new JSTypeColorIdHasher(registry);
     this.invalidatingTypes = invalidatingTypes;
     this.stringPoolBuilder = stringPoolBuilder;
+    this.shouldPropagatePropertyName = shouldPropagatePropertyName;
     this.serializationMode = serializationMode;
 
     this.seedCachesWithAxiomaticTypes();
@@ -115,20 +125,32 @@ final class JSTypeReconserializer {
     this.unknownRecord = this.seenTypeRecords.get(StandardColors.UNKNOWN.getId());
   }
 
+  /**
+   * Initializes a JSTypeReconserializer
+   *
+   * @param shouldPropagatePropertyName decide whether a property present on some ObjectType should
+   *     actually be serialized. Used to avoid serializing properties that won't impact
+   *     optimizations (because they aren't present in the AST)
+   */
   public static JSTypeReconserializer create(
       JSTypeRegistry registry,
       InvalidatingTypes invalidatingTypes,
       StringPool.Builder stringPoolBuilder,
+      Predicate<String> shouldPropagatePropertyName,
       SerializationOptions serializationMode) {
     JSTypeReconserializer serializer =
         new JSTypeReconserializer(
-            registry, invalidatingTypes, stringPoolBuilder, serializationMode);
+            registry,
+            invalidatingTypes,
+            stringPoolBuilder,
+            shouldPropagatePropertyName,
+            serializationMode);
     serializer.checkValidLinearTime();
     return serializer;
   }
 
   /** Returns a pointer to the given type. If it is not already serialized, serializes it too */
-  TypePointer serializeType(JSType type) {
+  int serializeType(JSType type) {
     SeenTypeRecord record = recordType(type);
     return record.pointer;
   }
@@ -190,8 +212,11 @@ final class JSTypeReconserializer {
       return Iterables.getOnlyElement(altRecords);
     }
 
-    ColorId unionId =
-        ColorId.union(altRecords.stream().map((r) -> r.colorId).collect(toImmutableSet()));
+    ImmutableSet.Builder<ColorId> alternateIds = ImmutableSet.builder();
+    for (SeenTypeRecord altRecord : altRecords) {
+      alternateIds.add(altRecord.colorId);
+    }
+    ColorId unionId = ColorId.union(alternateIds.build());
     SeenTypeRecord record = this.getOrCreateRecord(unionId, type);
 
     if (record.unionMembers == null) {
@@ -228,10 +253,10 @@ final class JSTypeReconserializer {
     return record;
   }
 
-  private void addSupertypeEdges(ObjectType subtype, TypePointer serializedSubtype) {
+  private void addSupertypeEdges(ObjectType subtype, Integer serializedSubtype) {
     this.disambiguateEdges.putAll(serializedSubtype, ownAncestorInterfacesOf(subtype));
     if (subtype.getImplicitPrototype() != null) {
-      TypePointer supertype = this.serializeType(subtype.getImplicitPrototype());
+      Integer supertype = this.serializeType(subtype.getImplicitPrototype());
       this.disambiguateEdges.put(serializedSubtype, supertype);
     }
   }
@@ -244,8 +269,7 @@ final class JSTypeReconserializer {
         this.seenTypeRecords.computeIfAbsent(
             id,
             (unused) -> {
-              TypePointer pointer =
-                  TypePointer.newBuilder().setPoolOffset(this.seenTypeRecords.size()).build();
+              int pointer = this.seenTypeRecords.size();
               return new SeenTypeRecord(id, pointer);
             });
     this.typeToRecordCache.put(jstype, record);
@@ -261,16 +285,15 @@ final class JSTypeReconserializer {
                 .addAllUnionMember(
                     seen.unionMembers.stream()
                         .map((r) -> r.pointer)
-                        .sorted(TypePointers.OFFSET_ASCENDING)
+                        .sorted()
                         .collect(toImmutableList()))
                 .build())
         .build();
   }
 
   private TypeProto reconcileObjectTypes(SeenTypeRecord seen) {
-    TreeSet<String> debugTypenames = new TreeSet<>();
-    LinkedHashSet<TypePointer> instancePointers = new LinkedHashSet<>();
-    LinkedHashSet<TypePointer> prototypePointers = new LinkedHashSet<>();
+    LinkedHashSet<Integer> instancePointers = new LinkedHashSet<>();
+    LinkedHashSet<Integer> prototypePointers = new LinkedHashSet<>();
     LinkedHashSet<Integer> ownProperties = new LinkedHashSet<>();
     boolean isClosureAssert = false;
     boolean isConstructor = false;
@@ -279,10 +302,6 @@ final class JSTypeReconserializer {
 
     for (JSType type : seen.jstypes) {
       ObjectType objType = checkNotNull(type.toMaybeObjectType(), type);
-
-      if (this.serializationMode.includeDebugInfo()) {
-        debugTypenames.add(debugNameOf(type));
-      }
 
       if (objType.isFunctionType()) {
         FunctionType fnType = objType.toMaybeFunctionType();
@@ -301,9 +320,9 @@ final class JSTypeReconserializer {
       for (String ownProperty : objType.getOwnPropertyNames()) {
         // TODO(b/169899789): consider omitting common, well-known properties like "prototype" to
         // save space.
-        // TODO(b/197522964): Only include property names referenced in some other part of the
-        // TypedAST so we can avoid serializing them.
-        ownProperties.add(this.stringPoolBuilder.put(ownProperty));
+        if (shouldPropagatePropertyName.test(ownProperty)) {
+          ownProperties.add(this.stringPoolBuilder.put(ownProperty));
+        }
       }
 
       isInvalidating |= this.invalidatingTypes.isInvalidating(objType);
@@ -316,7 +335,7 @@ final class JSTypeReconserializer {
       propertiesKeepOriginalName |= objType.isEnumType();
     }
 
-    ObjectTypeProto.Builder objectProto =
+    ObjectTypeProto objectProto =
         ObjectTypeProto.newBuilder()
             .addAllInstanceType(instancePointers)
             .addAllOwnProperty(ownProperties)
@@ -325,10 +344,8 @@ final class JSTypeReconserializer {
             .setIsInvalidating(isInvalidating)
             .setMarkedConstructor(isConstructor)
             .setPropertiesKeepOriginalName(propertiesKeepOriginalName)
-            .setUuid(seen.colorId.asByteString());
-    if (!debugTypenames.isEmpty()) {
-      objectProto.getDebugInfoBuilder().addAllTypename(debugTypenames);
-    }
+            .setUuid(seen.colorId.asByteString())
+            .build();
     return TypeProto.newBuilder().setObject(objectProto).build();
   }
 
@@ -339,24 +356,26 @@ final class JSTypeReconserializer {
    * edges for safe disambiguation. In particular, code generated from other languages (e.g TS)
    * might have more flexible subtyping rules.
    */
-  private ImmutableList<TypePointer> ownAncestorInterfacesOf(ObjectType type) {
+  private ImmutableList<Integer> ownAncestorInterfacesOf(ObjectType type) {
     FunctionType ctorType = type.getConstructor();
     if (ctorType == null) {
       return ImmutableList.of();
     }
 
-    return Streams.concat(
-            ctorType.getExtendedInterfaces().stream(),
-            ctorType.getOwnImplementedInterfaces().stream())
-        .map(this::serializeType)
-        .collect(toImmutableList());
+    ImmutableList.Builder<Integer> ancestors = ImmutableList.builder();
+    for (JSType ancestor :
+        Iterables.concat(
+            ctorType.getExtendedInterfaces(), ctorType.getOwnImplementedInterfaces())) {
+      ancestors.add(this.serializeType(ancestor));
+    }
+    return ancestors.build();
   }
 
   /**
    * Inserts dummy pointers corresponding to all {@link PrimitiveType}s in the type pool.
    *
    * <p>These types will never correspond to an actual {@link TypeProto}. Instead, all normal {@link
-   * TypePointer} offsets into the pool are offset by a number equivalent to the number of {@link
+   * Integer} offsets into the pool are offset by a number equivalent to the number of {@link
    * PrimitiveType} enum elements.
    */
   private void seedCachesWithAxiomaticTypes() {
@@ -365,8 +384,7 @@ final class JSTypeReconserializer {
     // Load all the axiomatic records in the right order without any types.
     for (Color axiomatic : TypePointers.OFFSET_TO_AXIOMATIC_COLOR) {
       int index = this.seenTypeRecords.size();
-      TypePointer pointer = TypePointer.newBuilder().setPoolOffset(index).build();
-      SeenTypeRecord record = new SeenTypeRecord(axiomatic.getId(), pointer);
+      SeenTypeRecord record = new SeenTypeRecord(axiomatic.getId(), index);
       this.seenTypeRecords.put(axiomatic.getId(), record);
     }
 
@@ -386,7 +404,7 @@ final class JSTypeReconserializer {
 
     final int totalTypeCount = this.seenTypeRecords.size();
     for (SeenTypeRecord seen : this.seenTypeRecords.values()) {
-      int offset = seen.pointer.getPoolOffset();
+      int offset = seen.pointer;
       checkState(offset >= 0);
       checkState(
           offset <= totalTypeCount,
@@ -427,7 +445,7 @@ final class JSTypeReconserializer {
                               // Ensure all types are recorded before reconciliation.
                               .map(this::serializeType)
                               .distinct()
-                              .sorted(TypePointers.OFFSET_ASCENDING)
+                              .sorted()
                               .collect(toImmutableList())));
     }
 
@@ -444,8 +462,8 @@ final class JSTypeReconserializer {
               : this.reconcileObjectTypes(seen));
     }
 
-    for (TypePointer subtype : this.disambiguateEdges.keySet()) {
-      for (TypePointer supertype : this.disambiguateEdges.get(subtype)) {
+    for (Integer subtype : this.disambiguateEdges.keySet()) {
+      for (Integer supertype : this.disambiguateEdges.get(subtype)) {
         builder.addDisambiguationEdges(
             SubtypingEdge.newBuilder().setSubtype(subtype).setSupertype(supertype));
       }
@@ -461,19 +479,20 @@ final class JSTypeReconserializer {
    *
    * <p>Only intended to be used for debug logging.
    */
-  ImmutableMultimap<String, String> getColorIdToJSTypeMapForDebugging() {
-    ImmutableMultimap.Builder<String, String> colorIdToTypes =
-        ImmutableMultimap.<String, String>builder()
-            .orderKeysBy(naturalOrder())
-            .orderValuesBy(naturalOrder());
+  ImmutableMultimap<String, JSType> getColorIdToJSTypeMapForDebugging() {
+    // note: returns JSType values instead of String values, even though all that's needed for
+    // debugging are the strings, to avoid the memory overhead of calculating all string
+    // representations at once
+    ImmutableMultimap.Builder<String, JSType> colorIdToTypes =
+        ImmutableMultimap.<String, JSType>builder().orderKeysBy(naturalOrder());
     this.typeToRecordCache.forEach(
-        (jstype, record) -> colorIdToTypes.put(record.colorId.toString(), jstype.toString()));
+        (jstype, record) -> colorIdToTypes.put(record.colorId.toString(), jstype));
     return colorIdToTypes.build();
   }
 
   private static final class SeenTypeRecord {
     final ColorId colorId;
-    final TypePointer pointer;
+    final int pointer;
 
     /**
      * 2021-05-25: It's faster to build a list and reconcile duplicates than to deduplicate using a
@@ -484,7 +503,7 @@ final class JSTypeReconserializer {
 
     @Nullable ImmutableSet<SeenTypeRecord> unionMembers = null;
 
-    SeenTypeRecord(ColorId colorId, TypePointer pointer) {
+    SeenTypeRecord(ColorId colorId, int pointer) {
       this.colorId = colorId;
       this.pointer = pointer;
     }
@@ -508,26 +527,5 @@ final class JSTypeReconserializer {
         return false;
     }
     throw new AssertionError();
-  }
-
-  private static String debugNameOf(JSType type) {
-    ObjectType oType = type.toMaybeObjectType();
-    if (oType == null) {
-      return type.toString();
-    }
-
-    String className = oType.getReferenceName();
-    if (oType.isFunctionType()) {
-      FunctionType fnType = oType.toMaybeFunctionType();
-      Node source = fnType.getSource();
-      if (fnType.hasInstanceType() && source != null) {
-        // Render function types known to be type definitions as "(typeof Foo)". This includes types
-        // defined like "/** @constructor */ function Foo() { }" but not to those defined like
-        // "@param
-        // {function(new:Foo)}". Only the former will have a source node.
-        className = "(typeof " + className + ")";
-      }
-    }
-    return (className == null) ? type.toString() : className;
   }
 }

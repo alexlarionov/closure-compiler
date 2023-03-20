@@ -25,8 +25,7 @@ import com.google.javascript.jscomp.AbstractCompiler.LifeCycleStage;
 import com.google.javascript.jscomp.ControlFlowGraph.Branch;
 import com.google.javascript.jscomp.DataFlowAnalysis.LinearFlowState;
 import com.google.javascript.jscomp.LiveVariablesAnalysis.LiveVariableLattice;
-import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
-import com.google.javascript.jscomp.NodeTraversal.ScopedCallback;
+import com.google.javascript.jscomp.NodeUtil.AllVarsDeclaredInFunction;
 import com.google.javascript.jscomp.graph.DiGraph.DiGraphNode;
 import com.google.javascript.jscomp.graph.GraphColoring;
 import com.google.javascript.jscomp.graph.GraphColoring.GreedyGraphColoring;
@@ -43,11 +42,10 @@ import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Comparator;
 import java.util.Deque;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import org.jspecify.nullness.Nullable;
 
 /**
  * Reuse variable names if possible.
@@ -64,10 +62,10 @@ import java.util.TreeSet;
  * graph coloring in {@link GraphColoring} to determine which two variables can
  * be merge together safely.
  */
-class CoalesceVariableNames extends AbstractPostOrderCallback implements
-    CompilerPass, ScopedCallback {
+class CoalesceVariableNames extends NodeTraversal.AbstractCfgCallback implements CompilerPass {
 
   private final AbstractCompiler compiler;
+  private final MemoizedScopeCreator scopeCreator;
   private final Deque<GraphColoring<Var, Void>> colorings;
   private final Deque<LiveVariablesAnalysis> liveAnalyses;
   private final boolean usePseudoNames;
@@ -81,8 +79,8 @@ class CoalesceVariableNames extends AbstractPostOrderCallback implements
   private final Deque<Boolean> shouldOptimizeScopeStack = new ArrayDeque<>();
 
   /**
-   * @param usePseudoNames For debug purposes, when merging variable foo and bar
-   * to foo, rename both variable to foo_bar.
+   * @param usePseudoNames For debug purposes, when merging variable foo and bar to foo, rename both
+   *     variable to foo_bar.
    */
   CoalesceVariableNames(AbstractCompiler compiler, boolean usePseudoNames) {
     // The code is normalized at this point in the compilation process. This allows us to use the
@@ -95,37 +93,44 @@ class CoalesceVariableNames extends AbstractPostOrderCallback implements
     liveAnalyses = new ArrayDeque<>();
     this.usePseudoNames = usePseudoNames;
     this.astFactory = compiler.createAstFactory();
+    this.scopeCreator = new MemoizedScopeCreator(new SyntacticScopeCreator(compiler));
   }
 
   @Override
   public void process(Node externs, Node root) {
     checkNotNull(externs);
     checkNotNull(root);
-    NodeTraversal.traverse(compiler, root, this);
+    NodeTraversal.builder()
+        .setCompiler(compiler)
+        .setCallback(this)
+        .setScopeCreator(this.scopeCreator)
+        .traverse(root);
     compiler.setLifeCycleStage(LifeCycleStage.RAW);
   }
 
-  private static boolean shouldOptimizeScope(NodeTraversal t) {
+  /** Returns populated AllVarsDeclaredInFunction object iff shouldOptimizeScope is true. */
+  private static @Nullable AllVarsDeclaredInFunction shouldOptimizeScope(NodeTraversal t) {
     // TODO(user): We CAN do this in the global scope, just need to be
     // careful when something is exported. Liveness uses bit-vector for live
     // sets so I don't see compilation time will be a problem for running this
     // pass in the global scope.
 
-    if (!t.getScopeRoot().isFunction()) {
-      return false;
+    if (t.getScopeRoot().isFunction()) {
+      AllVarsDeclaredInFunction allVarsDeclaredInFunction =
+          NodeUtil.getAllVarsDeclaredInFunction(t.getCompiler(), t.getScopeCreator(), t.getScope());
+      if (LiveVariablesAnalysis.MAX_VARIABLES_TO_ANALYZE
+          > allVarsDeclaredInFunction.getAllVariablesInOrder().size()) {
+        return allVarsDeclaredInFunction;
+      }
     }
 
-    Map<String, Var> allVarsInFn = new HashMap<>();
-    List<Var> orderedVars = new ArrayList<>();
-    NodeUtil.getAllVarsDeclaredInFunction(
-        allVarsInFn, orderedVars, t.getCompiler(), t.getScopeCreator(), t.getScope());
-
-    return LiveVariablesAnalysis.MAX_VARIABLES_TO_ANALYZE > orderedVars.size();
+    return null;
   }
 
   @Override
-  public void enterScope(NodeTraversal t) {
-    if (!shouldOptimizeScope(t)) {
+  public void enterScopeWithCfg(NodeTraversal t) {
+    AllVarsDeclaredInFunction allVarsDeclaredInFunction = shouldOptimizeScope(t);
+    if (allVarsDeclaredInFunction == null) {
       shouldOptimizeScopeStack.push(false);
       return;
     }
@@ -135,10 +140,11 @@ class CoalesceVariableNames extends AbstractPostOrderCallback implements
     checkState(scope.isFunctionScope(), scope);
 
     // live variables analysis is based off of the control flow graph
-    ControlFlowGraph<Node> cfg = t.getControlFlowGraph();
+    ControlFlowGraph<Node> cfg = getControlFlowGraph(compiler);
 
     liveness =
-        new LiveVariablesAnalysis(cfg, scope, null, compiler, new SyntacticScopeCreator(compiler));
+        new LiveVariablesAnalysis(
+            cfg, scope, null, compiler, this.scopeCreator, allVarsDeclaredInFunction);
 
     if (FeatureSet.ES3.contains(compiler.getOptions().getOutputFeatureSet())) {
       // If the function has exactly 2 params, mark them as escaped. This is a work-around for a
@@ -169,7 +175,7 @@ class CoalesceVariableNames extends AbstractPostOrderCallback implements
   }
 
   @Override
-  public void exitScope(NodeTraversal t) {
+  public void exitScopeWithCfg(NodeTraversal t) {
     if (!shouldOptimizeScopeStack.pop()) {
       return;
     }
@@ -258,7 +264,6 @@ class CoalesceVariableNames extends AbstractPostOrderCallback implements
    * that ensures any interfering variables are marked in different color groups, while variables
    * that can safely be coalesced are assigned the same color group.
    *
-   * @param cfg
    * @param escaped we don't want to coalesce any escaped variables
    * @return graph with variable nodes and edges representing variable interference
    */
@@ -389,7 +394,10 @@ class CoalesceVariableNames extends AbstractPostOrderCallback implements
       case CONST:
       case VAR:
         Node nameDecl = NodeUtil.getEnclosingNode(v.getNode(), NodeUtil::isNameDeclaration);
-        return NodeUtil.findLhsNodesInNode(nameDecl).size() > 1;
+
+        int[] count = {0}; // for lambda access
+        NodeUtil.visitLhsNodesInNode(nameDecl, (lhs) -> count[0]++);
+        return count[0] > 1;
       default:
         return false;
     }

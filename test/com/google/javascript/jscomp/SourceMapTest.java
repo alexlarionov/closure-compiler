@@ -26,7 +26,6 @@ import com.google.debugging.sourcemap.SourceMapConsumerV3;
 import com.google.debugging.sourcemap.SourceMapTestCase;
 import com.google.javascript.jscomp.SourceMap.Format;
 import java.io.IOException;
-import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -38,7 +37,7 @@ public final class SourceMapTest extends SourceMapTestCase {
 
   public SourceMapTest() {}
 
-  private List<SourceMap.LocationMapping> mappings;
+  private ImmutableList<SourceMap.LocationMapping> mappings;
   private ImmutableMap.Builder<String, SourceMapInput> inputMaps;
 
   @Test
@@ -182,9 +181,9 @@ public final class SourceMapTest extends SourceMapTestCase {
       options.sourceMapLocationMappings = mappings;
     }
 
-    if (!this.inputMaps.build().isEmpty()) {
+    if (!this.inputMaps.buildOrThrow().isEmpty()) {
       options.setApplyInputSourceMaps(true);
-      options.setInputSourceMaps(this.inputMaps.build());
+      options.setInputSourceMaps(this.inputMaps.buildOrThrow());
     }
     return options;
   }

@@ -57,9 +57,9 @@ import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.Outcome;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
-import java.util.TreeSet;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  * A type that may be any one of a set of types, and thus has the intersection of the properties of
@@ -347,7 +347,7 @@ public final class UnionType extends JSType {
     }
 
     if (that.isUnionType()) {
-      List<JSType> thoseAlternates = that.toMaybeUnionType().getAlternates();
+      ImmutableList<JSType> thoseAlternates = that.toMaybeUnionType().getAlternates();
       for (int i = 0; i < thoseAlternates.size(); i++) {
         JSType otherAlternate = thoseAlternates.get(i);
         if (otherAlternate.isSubtypeOf(union)) {
@@ -462,13 +462,14 @@ public final class UnionType extends JSType {
   void appendTo(TypeStringBuilder sb) {
     sb.append("(");
 
-    // Sort types by stringification to get deterministic behaviour.
-    TreeSet<String> sortedNames = new TreeSet<>();
+    List<String> names = new ArrayList<>();
     for (JSType alt : this.alternates) {
       // Clone the config to preserve indentation.
-      sortedNames.add(sb.cloneWithConfig().append(alt).build());
+      names.add(sb.cloneWithConfig().append(alt).build());
     }
-    sb.appendAll(sortedNames, "|");
+    // Sort types by stringification to get deterministic behaviour.
+    Collections.sort(names);
+    sb.appendAll(names, "|");
 
     sb.append(")");
   }
@@ -625,11 +626,11 @@ public final class UnionType extends JSType {
    * <p>Most users of this class should prefer {@link JSTypeRegistry#createUnionType} instead.
    */
   public static final class Builder {
-    private final UnionType rebuildTarget;
+    private final @Nullable UnionType rebuildTarget;
     private final JSTypeRegistry registry;
 
     private final List<JSType> alternates = new ArrayList<>();
-    private ImmutableList<JSType> finalAlternates = null;
+    private @Nullable ImmutableList<JSType> finalAlternates = null;
 
     // If a union has ? or *, we do not care about any other types, except for undefined (for
     // optional properties).
@@ -920,8 +921,7 @@ public final class UnionType extends JSType {
     }
 
     /** Returns ALL_TYPE, UNKNOWN_TYPE, CHECKED_UNKNOWN_TYPE, or null as specified by the flags. */
-    @Nullable
-    private JSType getNativeWildcardType() {
+    private @Nullable JSType getNativeWildcardType() {
       if (isAllType) {
         return registry.getNativeType(ALL_TYPE);
       } else if (isNativeUnknownType) {

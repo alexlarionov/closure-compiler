@@ -19,6 +19,8 @@ package com.google.javascript.jscomp;
 import static com.google.common.base.Preconditions.checkState;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Optional;
+import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
@@ -45,11 +47,12 @@ import com.google.javascript.rhino.jstype.JSTypeRegistry;
 import java.io.Serializable;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  * An abstract compiler, to help remove the circular dependency of passes on JSCompiler.
@@ -78,20 +81,19 @@ public abstract class AbstractCompiler implements SourceExcerptProvider, Compile
   // Many of them are just accessors that should be passed to the
   // CompilerPass's constructor.
 
+  abstract java.util.function.Supplier<Node> getTypedAstDeserializer(SourceFile file);
+
   /** Looks up an input (possibly an externs input) by input id. May return null. */
   @Override
   public abstract CompilerInput getInput(InputId inputId);
 
   /** Looks up a source file by name. May return null. */
-  @Nullable
-  abstract SourceFile getSourceFileByName(String sourceName);
+  abstract @Nullable SourceFile getSourceFileByName(String sourceName);
 
-  @Nullable
-  public abstract Node getScriptNode(String filename);
+  public abstract @Nullable Node getScriptNode(String filename);
 
   /** Gets the module graph. */
-  @Nullable
-  abstract JSChunkGraph getModuleGraph();
+  abstract @Nullable JSChunkGraph getModuleGraph();
 
   /**
    * Gets the inputs in the order in which they are being processed. Only for use by {@code
@@ -126,7 +128,7 @@ public abstract class AbstractCompiler implements SourceExcerptProvider, Compile
   public abstract void setStringMap(VariableMap stringMap);
 
   /** Sets the css names found during compilation. */
-  public abstract void setCssNames(Map<String, Integer> newCssNames);
+  public abstract void setCssNames(LinkedHashMap<String, Integer> newCssNames);
 
   /** Sets the mapping for instrumentation parameter encoding. */
   public abstract void setInstrumentationMapping(VariableMap instrumentationMapping);
@@ -258,6 +260,15 @@ public abstract class AbstractCompiler implements SourceExcerptProvider, Compile
   /** Prints a node to source code. */
   public abstract String toSource(Node root);
 
+  /**
+   * Whether to prefer using {@link JSFileRegexParser} when calculating {@link DependencyInfo} as
+   * opposed to triggering an AST-based parse.
+   *
+   * <p>This is primarily for performance reasons. The two should produce the same results except in
+   * some edge cases.
+   */
+  abstract boolean preferRegexParser();
+
   /** Gets a default error reporter for injecting into Rhino. */
   abstract ErrorReporter getDefaultErrorReporter();
 
@@ -288,8 +299,11 @@ public abstract class AbstractCompiler implements SourceExcerptProvider, Compile
    * <p>This method must be called anywhere that Colors are reconciled for application to the AST.
    * Otherwise Color information won't be consistent. `colorPoolBuilder` must be the same builder as
    * used for the other inputs, and the caller retains ownership.
+   *
+   * @param colorPoolBuilder if present, includes inferred optimization colors on the deserialized
+   *     ASTs. If absent, does not include colors.
    */
-  public void initRuntimeLibraryTypedAsts(ColorPool.Builder colorPoolBuilder) {
+  public void initRuntimeLibraryTypedAsts(Optional<ColorPool.Builder> colorPoolBuilder) {
     throw new UnsupportedOperationException(
         "Implementation in Compiler.java is not J2CL compatible.");
   }
@@ -311,7 +325,9 @@ public abstract class AbstractCompiler implements SourceExcerptProvider, Compile
   @Deprecated
   abstract Supplier<String> getUniqueNameIdSupplier();
 
-  /** @return Whether any errors have been encountered that should stop the compilation process. */
+  /**
+   * @return Whether any errors have been encountered that should stop the compilation process.
+   */
   abstract boolean hasHaltingErrors();
 
   /** Register a listener for code change events. */
@@ -369,13 +385,6 @@ public abstract class AbstractCompiler implements SourceExcerptProvider, Compile
   /** Returns the parser configuration for the specified context. */
   abstract Config getParserConfig(ConfigContext context);
 
-  /**
-   * Normalizes the types of AST nodes in the given tree, and annotates any nodes to which the
-   * coding convention applies so that passes can read the annotations instead of using the coding
-   * convention.
-   */
-  abstract void prepareAst(Node root);
-
   /** Gets the error manager. */
   public abstract ErrorManager getErrorManager();
 
@@ -397,15 +406,24 @@ public abstract class AbstractCompiler implements SourceExcerptProvider, Compile
    */
   abstract void setHasRegExpGlobalReferences(boolean references);
 
-  /** @return Whether the AST contains references to the RegExp global object properties. */
+  /**
+   * @return Whether the AST contains references to the RegExp global object properties.
+   */
   abstract boolean hasRegExpGlobalReferences();
 
-  /** @return The error level the given error object will be reported at. */
+  /**
+   * @return The error level the given error object will be reported at.
+   */
   abstract CheckLevel getErrorLevel(JSError error);
 
   /** What point in optimizations we're in. For use by compiler passes */
   public static enum LifeCycleStage implements Serializable {
     RAW,
+
+    // See constraints put on the AST by either running the ConvertTypesToColors.java pass /or/ by
+    // having created the AST via serialization/TypedAstDeserializer.java
+    // NORMALIZED implies this constraint
+    COLORS_AND_SIMPLIFIED_JSDOC,
 
     // See constraints put on the tree by Normalize.java
     NORMALIZED,
@@ -425,6 +443,10 @@ public abstract class AbstractCompiler implements SourceExcerptProvider, Compile
 
     public boolean isNormalizedObfuscated() {
       return this == NORMALIZED_OBFUSCATED;
+    }
+
+    public boolean hasColorAndSimplifiedJSDoc() {
+      return this != RAW;
     }
   }
 
@@ -459,53 +481,17 @@ public abstract class AbstractCompiler implements SourceExcerptProvider, Compile
 
   abstract void setFeatureSet(FeatureSet fs);
 
-  // TODO(bashir) It would be good to extract a single dumb data object with
-  // only getters and setters that keeps all global information we keep for a
-  // compiler instance. Then move some of the functions of this class there.
-
-  /**
-   * Updates the list of references for variables in global scope.
-   *
-   * @param refMapPatch Maps each variable to all of its references; may contain references
-   *     collected from the whole AST or only a SCRIPT sub-tree.
-   * @param collectionRoot The root of sub-tree in which reference collection has been done. This
-   *     should either be a SCRIPT node (if collection is done on a single file) or it is assumed
-   *     that collection is on full AST.
-   */
-  abstract void updateGlobalVarReferences(
-      Map<Var, ReferenceCollection> refMapPatch, Node collectionRoot);
-
-  /**
-   * This can be used to get the list of all references to all global variables based on all
-   * previous calls to {@code updateGlobalVarReferences}.
-   *
-   * @return The reference collection map associated to global scope variable.
-   */
-  abstract GlobalVarReferenceMap getGlobalVarReferences();
-
   /**
    * @return a CompilerInput that can be modified to add additional extern definitions to the
    *     beginning of the externs AST
    */
   abstract CompilerInput getSynthesizedExternsInput();
 
-  /**
-   * @return a number in [0,1] range indicating an approximate progress of the last compile. Note
-   *     this should only be used as a hint and no assumptions should be made on accuracy, even a
-   *     completed compile may choose not to set this to 1.0 at the end.
-   */
-  public abstract double getProgress();
-
   /** Gets the last pass name set by setProgress. */
   abstract String getLastPassName();
 
-  /**
-   * Sets the progress percentage as well as the name of the last pass that ran (if available).
-   *
-   * @param progress A percentage expressed as a double in the range [0, 1]. Use -1 if you just want
-   *     to set the last pass name.
-   */
-  abstract void setProgress(double progress, @Nullable String lastPassName);
+  static final String RUNTIME_LIB_DIR =
+  "src/com/google/javascript/jscomp/js/";
 
   /**
    * The subdir js/ contains libraries of code that we inject at compile-time only if requested by
@@ -541,6 +527,8 @@ public abstract class AbstractCompiler implements SourceExcerptProvider, Compile
    * reporting and source map combining.
    */
   public abstract void addInputSourceMap(String name, SourceMapInput sourceMap);
+
+  public abstract String getInputSourceMappingURL(String sourceFileName);
 
   abstract void addComments(String filename, List<Comment> comments);
 
@@ -635,6 +623,13 @@ public abstract class AbstractCompiler implements SourceExcerptProvider, Compile
     return this.getOptions().getDebugLogDirectory() != null;
   }
 
+  public final List<String> getDebugLogFilterList() {
+    if (this.getOptions().getDebugLogFilter() == null) {
+      return new ArrayList<>();
+    }
+    return Splitter.on(',').omitEmptyStrings().splitToList(this.getOptions().getDebugLogFilter());
+  }
+
   /** Provides logging access to a file with the specified name. */
   @MustBeClosed
   public final LogFile createOrReopenLog(
@@ -646,7 +641,20 @@ public abstract class AbstractCompiler implements SourceExcerptProvider, Compile
     Path dir = getOptions().getDebugLogDirectory();
     Path relativeParts = Paths.get(firstNamePart, restNameParts);
     Path file = dir.resolve(owner.getSimpleName()).resolve(relativeParts);
-    return LogFile.createOrReopen(file);
+
+    // If a filter list for log file names was provided, only create a log file if any
+    // of the filter strings matches.
+    List<String> filters = getDebugLogFilterList();
+    if (filters.isEmpty()) {
+      return LogFile.createOrReopen(file);
+    }
+
+    for (String filter : filters) {
+      if (file.toString().contains(filter)) {
+        return LogFile.createOrReopen(file);
+      }
+    }
+    return LogFile.createNoOp();
   }
 
   /**
@@ -692,19 +700,4 @@ public abstract class AbstractCompiler implements SourceExcerptProvider, Compile
    * rewriting has not occurred.
    */
   abstract void mergeSyntheticCodeInput();
-
-  /** A trivial interface to make the LocaleData opaque */
-  interface LocaleData {}
-
-  /**
-   * Storage for i18n data extracted from the compilation set, to use for localization of the
-   * compilation late in the compilation process.
-   */
-  abstract void setLocaleSubstitutionData(LocaleData localeDataValueMap);
-
-  /**
-   * Retrieve extracted i18n data extracted, to use for localization of the compilation late in the
-   * compilation process.
-   */
-  abstract LocaleData getLocaleSubstitutionData();
 }

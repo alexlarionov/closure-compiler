@@ -23,9 +23,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.javascript.rhino.Node;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -685,8 +682,9 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
     // fold if left is null/undefined
     test("null ?? 1", "1");
     test("undefined ?? false", "false");
+    test("(a(), null) ?? 1", "(a(), null, 1)");
 
-    test("x = [foo()] ?? x", "x = ([foo()],x)");
+    test("x = [foo()] ?? x", "x = [foo()]");
 
     // short circuit on all non nullish LHS
     test("x = false ?? x", "x = false");
@@ -2081,20 +2079,21 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
 
   @Test
   public void testInvertibleOperators() {
-    Map<String, String> inverses = ImmutableMap.<String, String>builder()
-        .put("==", "!=")
-        .put("===", "!==")
-        .put("<=", ">")
-        .put("<", ">=")
-        .put(">=", "<")
-        .put(">", "<=")
-        .put("!=", "==")
-        .put("!==", "===")
-        .build();
-    Set<String> comparators = ImmutableSet.of("<=", "<", ">=", ">");
-    Set<String> equalitors = ImmutableSet.of("==", "===");
-    Set<String> uncomparables = ImmutableSet.of("undefined", "void 0");
-    List<String> operators = ImmutableList.copyOf(inverses.values());
+    ImmutableMap<String, String> inverses =
+        ImmutableMap.<String, String>builder()
+            .put("==", "!=")
+            .put("===", "!==")
+            .put("<=", ">")
+            .put("<", ">=")
+            .put(">=", "<")
+            .put(">", "<=")
+            .put("!=", "==")
+            .put("!==", "===")
+            .buildOrThrow();
+    ImmutableSet<String> comparators = ImmutableSet.of("<=", "<", ">=", ">");
+    ImmutableSet<String> equalitors = ImmutableSet.of("==", "===");
+    ImmutableSet<String> uncomparables = ImmutableSet.of("undefined", "void 0");
+    ImmutableList<String> operators = ImmutableList.copyOf(inverses.values());
     for (int iOperandA = 0; iOperandA < LITERAL_OPERANDS.size(); iOperandA++) {
       for (int iOperandB = 0;
            iOperandB < LITERAL_OPERANDS.size();
@@ -2132,16 +2131,8 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
   @Test
   public void testCommutativeOperators() {
     late = true;
-    List<String> operators =
-        ImmutableList.of(
-            "==",
-            "!=",
-            "===",
-            "!==",
-            "*",
-            "|",
-            "&",
-            "^");
+    ImmutableList<String> operators =
+        ImmutableList.of("==", "!=", "===", "!==", "*", "|", "&", "^");
     for (String a : LITERAL_OPERANDS) {
       for (String b : LITERAL_OPERANDS) {
         for (String op : operators) {

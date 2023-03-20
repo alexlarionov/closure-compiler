@@ -44,24 +44,24 @@ public final class ReplaceCssNamesTest extends CompilerTestCase {
   /** Map of replacements to use during the test. */
   Map<String, String> replacementMap =
       new ImmutableMap.Builder<String, String>()
-      .put("active", "a")
-      .put("buttonbar", "b")
-      .put("colorswatch", "c")
-      .put("disabled", "d")
-      .put("elephant", "e")
-      .put("footer", "f")
-      .put("goog", "g")
-    .build();
+          .put("active", "a")
+          .put("buttonbar", "b")
+          .put("colorswatch", "c")
+          .put("disabled", "d")
+          .put("elephant", "e")
+          .put("footer", "f")
+          .put("goog", "g")
+          .buildOrThrow();
 
   Map<String, String> replacementMapFull =
       new ImmutableMap.Builder<String, String>()
-      .put("long-prefix", "h")
-      .put("suffix1", "i")
-      .put("unrelated-word", "k")
-      .put("unrelated", "l")
-      .put("long-suffix", "m")
-      .put("long-prefix-suffix1", "h-i")
-      .build();
+          .put("long-prefix", "h")
+          .put("suffix1", "i")
+          .put("unrelated-word", "k")
+          .put("unrelated", "l")
+          .put("long-suffix", "m")
+          .put("long-prefix-suffix1", "h-i")
+          .buildOrThrow();
 
   CssRenamingMap renamingMap;
   Set<String> skiplist;
@@ -84,7 +84,7 @@ public final class ReplaceCssNamesTest extends CompilerTestCase {
     };
   }
 
-  protected CssRenamingMap getPartialMap() {
+  CssRenamingMap getPartialMap() {
     return new CssRenamingMap.ByPart() {
       @Override
       public String get(String value) {
@@ -93,7 +93,7 @@ public final class ReplaceCssNamesTest extends CompilerTestCase {
     };
   }
 
-  protected CssRenamingMap getFullMap() {
+  CssRenamingMap getFullMap() {
     return new CssRenamingMap.ByWhole() {
       @Override public String get(String value) {
         return replacementMapFull.get(value);
@@ -127,15 +127,15 @@ public final class ReplaceCssNamesTest extends CompilerTestCase {
          "el.className = 'goog-colorswatch-disabled'");
     test("setClass(goog.getCssName('active-buttonbar'))",
          "setClass('active-buttonbar')");
-    Map<String, Integer> expected =
+    ImmutableMap<String, Integer> expected =
         new ImmutableMap.Builder<String, Integer>()
-        .put("goog", 2)
-        .put("footer", 1)
-        .put("active", 2)
-        .put("colorswatch", 1)
-        .put("disabled", 1)
-        .put("buttonbar", 1)
-        .build();
+            .put("goog", 2)
+            .put("footer", 1)
+            .put("active", 2)
+            .put("colorswatch", 1)
+            .put("disabled", 1)
+            .put("buttonbar", 1)
+            .buildOrThrow();
     assertThat(cssNames).isEqualTo(expected);
   }
 
@@ -162,12 +162,12 @@ public final class ReplaceCssNamesTest extends CompilerTestCase {
          "el.className = 'c'");
     test("setClass(goog.getCssName('elephant'))",
          "setClass('e')");
-    Map<String, Integer> expected =
+    ImmutableMap<String, Integer> expected =
         new ImmutableMap.Builder<String, Integer>()
-        .put("buttonbar", 1)
-        .put("colorswatch", 1)
-        .put("elephant", 1)
-        .build();
+            .put("buttonbar", 1)
+            .put("colorswatch", 1)
+            .put("elephant", 1)
+            .buildOrThrow();
     assertThat(cssNames).isEqualTo(expected);
   }
 
@@ -183,15 +183,15 @@ public final class ReplaceCssNamesTest extends CompilerTestCase {
          "el.className = 'g-c-d'");
     test("setClass(goog.getCssName('active-buttonbar'))",
          "setClass('a-b')");
-    Map<String, Integer> expected =
+    ImmutableMap<String, Integer> expected =
         new ImmutableMap.Builder<String, Integer>()
-        .put("goog", 2)
-        .put("footer", 1)
-        .put("active", 2)
-        .put("colorswatch", 1)
-        .put("disabled", 1)
-        .put("buttonbar", 1)
-        .build();
+            .put("goog", 2)
+            .put("footer", 1)
+            .put("active", 2)
+            .put("colorswatch", 1)
+            .put("disabled", 1)
+            .put("buttonbar", 1)
+            .buildOrThrow();
     assertThat(cssNames).isEqualTo(expected);
   }
 

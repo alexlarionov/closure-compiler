@@ -16,6 +16,7 @@
 package com.google.javascript.jscomp;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.javascript.jscomp.SourceExcerptProvider.SourceExcerpt.FULL;
 import static com.google.javascript.jscomp.SourceExcerptProvider.SourceExcerpt.LINE;
 import static java.lang.Math.max;
@@ -24,12 +25,13 @@ import static java.lang.Math.min;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.debugging.sourcemap.proto.Mapping.OriginalMapping;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.javascript.jscomp.SourceExcerptProvider.ExcerptFormatter;
 import com.google.javascript.jscomp.SourceExcerptProvider.SourceExcerpt;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.TokenUtil;
 import java.util.List;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  * Lightweight message formatter. The format of messages this formatter
@@ -65,11 +67,13 @@ public final class LightweightMessageFormatter extends AbstractMessageFormatter 
     return new LightweightMessageFormatter();
   }
 
+  @CanIgnoreReturnValue
   public LightweightMessageFormatter setIncludeLocation(boolean includeLocation) {
     this.includeLocation = includeLocation;
     return this;
   }
 
+  @CanIgnoreReturnValue
   public LightweightMessageFormatter setIncludeLevel(boolean includeLevel) {
     this.includeLevel = includeLevel;
     return this;
@@ -162,7 +166,7 @@ public final class LightweightMessageFormatter extends AbstractMessageFormatter 
     if (sourceExcerpt != null) {
       if (format.equals(FULL)) {
         if (0 <= charno) {
-          padMultipleLines(charno, sourceExcerpt, b, error.getNode());
+          padMultipleLines(error, charno, sourceExcerpt, b, error.getNode());
         } else {
           b.append(sourceExcerpt);
           b.append('\n');
@@ -225,11 +229,15 @@ public final class LightweightMessageFormatter extends AbstractMessageFormatter 
    * @param sourceExcerpt the original source, possibly multiple lines separated by '\n'.
    */
   private void padMultipleLines(
-      int startCharno, String sourceExcerpt, StringBuilder b, Node errorNode) {
+      JSError error, int startCharno, String sourceExcerpt, StringBuilder b, Node errorNode) {
     if (errorNode == null) {
       b.append(sourceExcerpt);
       b.append("\n");
       int charWithLineNumberOffset = startCharno + sourceExcerpt.indexOf('|') + 2;
+      checkState(
+          charWithLineNumberOffset <= sourceExcerpt.length(),
+          "Cannot format source excerpt; unexpected start character for error:\n %s",
+          error);
       padLine(charWithLineNumberOffset, sourceExcerpt, b, -1, errorNode);
       return;
     }
@@ -253,6 +261,10 @@ public final class LightweightMessageFormatter extends AbstractMessageFormatter 
       if (shouldPrintLine) {
         b.append(line);
         b.append("\n");
+        checkState(
+            charWithLineNumberOffset <= sourceExcerpt.length(),
+            "Cannot format source excerpt; unexpected start character for error\n%s",
+            error);
         padLine(charWithLineNumberOffset, line, b, remainingLength, errorNode);
       }
 
@@ -280,7 +292,7 @@ public final class LightweightMessageFormatter extends AbstractMessageFormatter 
     }
 
     @Override
-    public String formatRegion(@Nullable Region region) {
+    public @Nullable String formatRegion(@Nullable Region region) {
       if (region == null) {
         return null;
       }

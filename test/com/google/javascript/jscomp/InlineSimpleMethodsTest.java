@@ -32,6 +32,7 @@ public final class InlineSimpleMethodsTest extends CompilerTestCase {
   @Before
   public void setUp() throws Exception {
     super.setUp();
+    enableGatherExternProperties();
     enableNormalize();
   }
 
@@ -41,6 +42,38 @@ public final class InlineSimpleMethodsTest extends CompilerTestCase {
    */
   private void testWithPrefix(String definitions, String js, String expected) {
     test(definitions + js, definitions + expected);
+  }
+
+  @Test
+  public void testDoesNotInlineMethodOnBaseClass() {
+    String baseClassJS =
+        lines(
+            "class Base {",
+            "  constructor() {",
+            "    /** @const */",
+            "    this.prop_ =",
+            "        Math.random() > .5;",
+            "  }",
+            "  method() {",
+            "    return this.prop_;",
+            "  }",
+            "}");
+
+    String derivedClassJS =
+        lines(
+            "class Derived extends Base {",
+            "  constructor() {",
+            "    super();",
+            "  }",
+            "  derivedMethod() {",
+            "    super.method();",
+            "  }",
+            "}",
+            "",
+            "(new Derived()).derivedMethod();");
+
+    String source = baseClassJS + derivedClassJS;
+    testSame(source);
   }
 
   @Test

@@ -86,6 +86,7 @@ public enum Msg {
   JSDOC_LOCALESELECT("extra @localeSelect tag"),
   JSDOC_LOCALEVALUE("extra @localeValue tag"),
   JSDOC_PROVIDE_GOOG("extra @provideGoog tag"),
+  JSDOC_PROVIDE_ALREADY_PROVIDED("extra @provideAlreadyProvided tag"),
   JSDOC_MEANING_EXTRA("extra @meaning tag"),
   JSDOC_MISSING_BRACES("Type annotations should have curly braces."),
   JSDOC_MISSING_COLON("expecting colon after this"),
@@ -106,6 +107,7 @@ public enum Msg {
   JSDOC_NOCOLLAPSE("extra @nocollapse tag"),
   JSDOC_IMMOVABLE("extra @immovable tag"),
   JSDOC_NOCOMPILE("extra @nocompile tag"),
+  JSDOC_NODTS("extra @nodts tag"),
   JSDOC_NOINLINE("extra @noinline tag"),
   JSDOC_NOSIDEEFFECTS("conflicting @nosideeffects tag"),
   JSDOC_OVERRIDE("extra @override/@inheritDoc tag."),
@@ -140,7 +142,8 @@ public enum Msg {
   JSDOC_WIZACTION("extra @wizaction tag"),
   MISSING_VARIABLE_NAME("expecting a variable name in a @param tag."),
   NO_TYPE_NAME("expecting a type name."),
-  UNEXPECTED_EOF("Unexpected end of file");
+  UNEXPECTED_EOF("Unexpected end of file"),
+  JSDOC_WIZCALLBACK("extra @wizcallback tag");
 
   final String text;
 

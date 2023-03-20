@@ -679,7 +679,7 @@ public class IR {
   }
 
   public static Node stringKey(String s, Node value) {
-    checkState(mayBeExpression(value));
+    checkState(mayBeExpression(value) || value.isDefaultValue());
     Node stringKey = stringKey(s);
     stringKey.addChildToFront(value);
     return stringKey;
@@ -713,6 +713,27 @@ public class IR {
 
   public static Node superNode() {
     return new Node(Token.SUPER);
+  }
+
+  public static Node getterDef(String name, Node value) {
+    checkState(value.isFunction());
+    Node member = Node.newString(Token.GETTER_DEF, name);
+    member.addChildToFront(value);
+    return member;
+  }
+
+  public static Node setterDef(String name, Node value) {
+    checkState(value.isFunction());
+    Node member = Node.newString(Token.SETTER_DEF, name);
+    member.addChildToFront(value);
+    return member;
+  }
+
+  public static Node memberFieldDef(String name, Node value) {
+    checkState(mayBeExpression(value));
+    Node member = Node.newString(Token.MEMBER_FIELD_DEF, name);
+    member.addChildToFront(value);
+    return member;
   }
 
   public static Node memberFunctionDef(String name, Node function) {

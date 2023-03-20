@@ -19,7 +19,6 @@ package com.google.javascript.jscomp;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
-import static java.util.Arrays.stream;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.javascript.jscomp.CodingConvention.SubclassRelationship;
@@ -31,7 +30,7 @@ import java.util.IdentityHashMap;
 import java.util.Locale;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  * A pass for stripping a list of provided JavaScript object types.
@@ -264,7 +263,7 @@ class StripCode implements CompilerPass {
     }
 
     /**
-     * Removes declarations of any variables whose names are strip names or whose whose r-values are
+     * Removes declarations of any variables whose names are strip names or whose r-values are
      * static method calls on strip types. Builds a set of removed variables so that all references
      * to them can be removed.
      *
@@ -404,6 +403,25 @@ class StripCode implements CompilerPass {
             // NOTE: the callee is handled when we visit the CALL or NEW node
             decisionsLog.log(
                 () -> n.getQualifiedName() + ": replacing parameter reference with null");
+            replaceWithNull(n);
+            t.reportCodeChange();
+          }
+          break;
+
+        case COMMA:
+          Node grandparent = parent.getParent();
+          // The last child in a comma expression is its result, so we need to be careful replacing
+          // it with null. We don't want to replace the entire comma expression with null because
+          // there could be other elements in it with side-effects.
+          boolean isLastChild = parent.getLastChild() == n;
+          // The only parent where replacing with null is an issue is likely where the comma
+          // expression is the first child (callee) of a CALL or NEW node.
+          boolean parentIsCallee =
+              (grandparent.isCall() || grandparent.isNew()) && parent.isFirstChildOf(grandparent);
+          boolean isSafeToRemove = !isLastChild || !parentIsCallee;
+          if (isSafeToRemove && isReferenceToRemovedVar(t, n)) {
+            decisionsLog.log(
+                () -> n.getQualifiedName() + ": replacing reference in comma expr with null");
             replaceWithNull(n);
             t.reportCodeChange();
           }
@@ -609,11 +627,12 @@ class StripCode implements CompilerPass {
      * @return Whether the call's return value should be stripped
      */
     boolean isCallWhoseReturnValueShouldBeStripped(@Nullable Node n) {
-      return n != null
-          && (n.isCall() || n.isNew())
-          && n.hasChildren()
-          && (qualifiedNameBeginsWithStripType(n.getFirstChild())
-              || nameIncludesFieldNameToStrip(n.getFirstChild()));
+      if (n == null || (!n.isCall() && !n.isNew()) || !n.hasChildren()) {
+        return false;
+      }
+
+      Node function = NodeUtil.getCallTargetResolvingIndirectCalls(n);
+      return qualifiedNameBeginsWithStripType(function) || nameIncludesFieldNameToStrip(function);
     }
 
     /**
@@ -688,7 +707,7 @@ class StripCode implements CompilerPass {
       //     STRING (method name)
       //   ... (arguments)
 
-      Node function = n.getFirstChild();
+      Node function = NodeUtil.getCallTargetResolvingIndirectCalls(n);
       if (function == null || !function.isQualifiedName()) {
         return false;
       }
@@ -728,8 +747,14 @@ class StripCode implements CompilerPass {
         String nameString = n.getString();
         // CollapseProperties may have turned "a.b.c" into "a$b$c",
         // so split that up and match its parts.
-        return nameString.contains("$")
-            && stream(nameString.split("\\$")).anyMatch(this::isStripName);
+        if (nameString.indexOf('$') != -1) {
+          for (String part : nameString.split("\\$")) {
+            if (isStripName(part)) {
+              return true;
+            }
+          }
+        }
+        return false;
       } else {
         return false;
       }
@@ -809,15 +834,21 @@ class StripCode implements CompilerPass {
     }
 
     private void logNotAStripName(String name, String reason) {
-      decisionsLog.log(() -> name + "\tnot a strip name: " + reason);
+      if (decisionsLog.isLogging()) {
+        decisionsLog.log(() -> name + "\tnot a strip name: " + reason);
+      }
     }
 
     private void logStripName(String name, String reason) {
-      decisionsLog.log(() -> name + "\tstrip name: " + reason);
+      if (decisionsLog.isLogging()) {
+        decisionsLog.log(() -> name + "\tstrip name: " + reason);
+      }
     }
 
     private void logStripName(String name, Supplier<String> reasonSupplier) {
-      decisionsLog.log(() -> name + "\tstrip name: " + reasonSupplier.get());
+      if (decisionsLog.isLogging()) {
+        decisionsLog.log(() -> name + "\tstrip name: " + reasonSupplier.get());
+      }
     }
 
     /**

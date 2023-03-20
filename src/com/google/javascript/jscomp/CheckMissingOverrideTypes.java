@@ -35,7 +35,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  * Checks if the @override methods are missing type annotations. If they are, then this generates
@@ -85,8 +85,7 @@ public final class CheckMissingOverrideTypes extends AbstractPostOrderCallback
     }
   }
 
-  @Nullable
-  private JSDocInfo getOverrideJSDoc(Node n) {
+  private @Nullable JSDocInfo getOverrideJSDoc(Node n) {
     JSDocInfo jsDoc = NodeUtil.getBestJSDocInfo(n);
     return (jsDoc != null && jsDoc.isOverride()) ? jsDoc : null;
   }
@@ -207,7 +206,7 @@ public final class CheckMissingOverrideTypes extends AbstractPostOrderCallback
         JSError.make(
             node,
             OVERRIDE_WITHOUT_ALL_TYPES,
-            new JSDocInfoPrinter(/* useOriginalName */ false, /* printDesc */ true)
+            new JSDocInfoPrinter(/* useOriginalName= */ false, /* printDesc= */ true)
                 .print(completeJSDocInfo)));
   }
 
@@ -232,7 +231,7 @@ public final class CheckMissingOverrideTypes extends AbstractPostOrderCallback
 
     Set<String> jsDocParamNames = jsDoc.getParameterNames();
     List<String> astParamNames = getFunctionParamNamesOrPlaceholder(fnNode);
-    List<Parameter> fnTypeParams = fnType.getParameters();
+    ImmutableList<Parameter> fnTypeParams = fnType.getParameters();
 
     for (int paramIndex = 0; paramIndex < astParamNames.size(); paramIndex++) {
       String astName = astParamNames.get(paramIndex);

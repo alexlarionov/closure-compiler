@@ -34,6 +34,39 @@ message LazyAst {
   bytes script = 1;
   // 1-based index into TypedAst::source_file_pool
   uint32 source_file = 2;
+  // The URL for a source map associated with this source file (i.e. the URL
+  // specified in "//# sourceMappingURL=" comments).
+  string source_mapping_url = 3;
+}
+
+// Keep this in sync with the TypedAst proto.
+// This is only used for debugging as proto printing
+// tools produce unreadable bytecode for a LazyAst.
+message NonLazyTypedAst {
+  // required
+  TypePool type_pool = 1;
+  // required
+  StringPoolProto string_pool = 2;
+
+  repeated NonLazyAst extern_ast = 3;
+  repeated NonLazyAst code_ast = 4;
+
+  SourceFilePool source_file_pool = 5;
+  ExternsSummary externs_summary = 6;
+
+  message List {
+    repeated NonLazyTypedAst typed_asts = 1;
+  }
+}
+
+// Keep this in sync with the LazyAst proto
+message NonLazyAst {
+  AstNode script = 1;
+  // 1-based index into TypedAst::source_file_pool
+  uint32 source_file = 2;
+  // The URL for a source map associated with this source file (i.e. the URL
+  // specified in "//# sourceMappingURL=" comments).
+  string source_mapping_url = 3;
 }
 
 message StringPoolProto {
@@ -70,8 +103,12 @@ message AstNode {
   // TODO(b/183734530): delete this field
   uint32 original_name_pointer = 9;
 
-  repeated NodeProperty boolean_property = 14;
-  TypePointer type = 15;
+  // A bitset of NodeProperties
+  int64 boolean_properties = 14;
+
+  // Associated type of the node, if present
+  // See types.proto for what the int32 pointer means
+  optional int32 type = 15;
 
   // pointer into the TypedAst's SourceFilePool
   // 0 is equivalent to 'not set' and assumed to be equal to the source_file of
@@ -278,9 +315,8 @@ enum NodeProperty {
   DIRECT_EVAL = 9;
   // A CALL without an explicit "this" value.
   FREE_CALL = 10;
-  // Whether a STRING node contains a \v vertical tab escape. This is a total
-  // hack. See comments in IRFactory about this.
-  SLASH_V = 11;
+  // Unused.
+  UNUSED_11 = 11;
   // An object that's used for goog.object.reflect-style reflection.
   REFLECTED_OBJECT = 12;
   // Set if class member definition is static
@@ -357,4 +393,13 @@ enum NodeProperty {
   // TODO(b/183734515): it probably doesn't make sense to serialize this at the
   // library level. delete it.
   IS_DECLARED_CONSTANT = 44;
+  // Indicates that an externs name declaration was synthesized by the compiler
+  // because the name was referenced without being declared
+  SYNTHESIZED_UNFULFILLED_NAME_DECLARATION = 45;
+
+  // These all come from the SIDE_EFFECT_FLAGS integer property
+  MUTATES_GLOBAL_STATE = 46;
+  MUTATES_THIS = 47;
+  MUTATES_ARGUMENTS = 48;
+  THROWS = 49;
 }

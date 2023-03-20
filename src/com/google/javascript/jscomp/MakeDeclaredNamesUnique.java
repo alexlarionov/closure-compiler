@@ -31,12 +31,12 @@ import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.TokenStream;
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  *  Find all Functions, VARs, and Exception names and make them
@@ -141,11 +141,8 @@ class MakeDeclaredNamesUnique extends NodeTraversal.AbstractScopedCallback {
     }
   }
 
-  /**
-   * Walks the stack of name maps and finds the replacement name for the
-   * current scope.
-   */
-  private String getReplacementName(String oldName) {
+  /** Walks the stack of name maps and finds the replacement name for the current scope. */
+  private @Nullable String getReplacementName(String oldName) {
     for (Renamer renamer : renamerStack) {
       String newName = renamer.getReplacementName(oldName);
       if (newName != null) {
@@ -254,7 +251,7 @@ class MakeDeclaredNamesUnique extends NodeTraversal.AbstractScopedCallback {
       }
 
       referenceStack.push(referencedNames);
-      referencedNames = new HashSet<>();
+      referencedNames = new LinkedHashSet<>();
     }
 
     /**
@@ -375,8 +372,7 @@ class MakeDeclaredNamesUnique extends NodeTraversal.AbstractScopedCallback {
    * @see Normalize
    */
   static class ContextualRenamer implements Renamer {
-    @Nullable
-    private final Node scopeRoot;
+    private final @Nullable Node scopeRoot;
 
     // This multiset is shared between this ContextualRenamer and its parent (and its parent's
     // parent, etc.) because it tracks counts of variables across the entire JS program.
@@ -384,7 +380,7 @@ class MakeDeclaredNamesUnique extends NodeTraversal.AbstractScopedCallback {
 
     // By contrast, this is a different map for each ContextualRenamer because it's just keeping
     // track of the names used by this renamer.
-    private final Map<String, String> declarations = new HashMap<>();
+    private final Map<String, String> declarations = new LinkedHashMap<>();
     private final boolean global;
 
     private final Renamer hoistRenamer;
@@ -504,7 +500,7 @@ class MakeDeclaredNamesUnique extends NodeTraversal.AbstractScopedCallback {
    * @see FunctionInjector
    */
   static class InlineRenamer implements Renamer {
-    private final Map<String, String> declarations = new HashMap<>();
+    private final Map<String, String> declarations = new LinkedHashMap<>();
     private final Supplier<String> uniqueIdSupplier;
     private final String idPrefix;
     private final boolean removeConstness;
@@ -630,7 +626,7 @@ class MakeDeclaredNamesUnique extends NodeTraversal.AbstractScopedCallback {
     }
 
     @Override
-    public String getReplacementName(String oldName) {
+    public @Nullable String getReplacementName(String oldName) {
       return targets.contains(oldName) ? delegate.getReplacementName(oldName) : null;
     }
 

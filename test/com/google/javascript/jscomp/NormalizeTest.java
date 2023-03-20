@@ -22,6 +22,7 @@ import com.google.javascript.jscomp.CompilerOptions.ChunkOutputType;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.CompilerOptions.PropertyCollapseLevel;
 import com.google.javascript.jscomp.deps.ModuleLoader.ResolutionMode;
+import com.google.javascript.jscomp.testing.TestExternsBuilder;
 import com.google.javascript.rhino.Node;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -31,7 +32,9 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
-/** @author johnlenz@google.com (John Lenz) */
+/**
+ * @author johnlenz@google.com (John Lenz)
+ */
 @RunWith(JUnit4.class)
 public final class NormalizeTest extends CompilerTestCase {
 
@@ -57,6 +60,15 @@ public final class NormalizeTest extends CompilerTestCase {
   protected int getNumRepetitions() {
     // The normalize pass is only run once.
     return 1;
+  }
+
+  @Override
+  public void setUp() throws Exception {
+    super.setUp();
+    // Validate that Normalize copies colors onto any nodes it synthesizes
+    enableTypeInfoValidation();
+    enableTypeCheck();
+    replaceTypesWithColors();
   }
 
   @Test
@@ -204,6 +216,7 @@ public final class NormalizeTest extends CompilerTestCase {
   public void testClassField() {
     test(
         lines(
+            "/** @unrestricted */",
             "class Foo {", //
             "  f1;",
             "  ['f2'] = 1;",
@@ -216,6 +229,51 @@ public final class NormalizeTest extends CompilerTestCase {
             "  ['f2'] = 1",
             "  static f3",
             "  static 'f4' = 'hi'",
+            "}"));
+  }
+
+  @Test
+  public void testClassStaticBlock() {
+    test(
+        lines(
+            "var x;",
+            "class Foo {", //
+            "  static {",
+            "    var x;",
+            "    let y;",
+            "    this.x;",
+            "  }",
+            "  static {",
+            "    var x;",
+            "    let y;",
+            "  }",
+            "}",
+            "class Bar {",
+            "  static {",
+            "    var x;",
+            "    let y;",
+            "    this.x;",
+            "  }",
+            "}"),
+        lines(
+            "var x;",
+            "class Foo {", //
+            "  static {",
+            "    var x$jscomp$1;",
+            "    let y;",
+            "    this.x;",
+            "  }",
+            "  static {",
+            "    var x$jscomp$2;",
+            "    let y$jscomp$1;",
+            "  }",
+            "}",
+            "class Bar {",
+            "  static {",
+            "    var x$jscomp$3;",
+            "    let y$jscomp$2;",
+            "    this.x;",
+            "  }",
             "}"));
   }
 
@@ -314,7 +372,7 @@ public final class NormalizeTest extends CompilerTestCase {
     test("x /= 1;", "x = x / 1;");
     test("x %= 1;", "x = x % 1;");
 
-    test("/** @suppress {const} */ x += 1;", "/** @suppress {const} */ x = x + 1;");
+    test("/** @suppress {const} */ x += 1;", "x = x + 1;");
   }
 
   @Test
@@ -431,7 +489,7 @@ public final class NormalizeTest extends CompilerTestCase {
     test(
         externs("var extern;"),
         srcs("/** @suppress {duplicate} */ var extern = 3;"),
-        expected("/** @suppress {duplicate} */ var extern = 3;"));
+        expected("var extern = 3;"));
   }
 
   @Test
@@ -465,6 +523,8 @@ public final class NormalizeTest extends CompilerTestCase {
 
   @Test
   public void testForIn1() {
+    ignoreWarnings(DiagnosticGroups.MISSING_PROPERTIES);
+
     // Verify nothing happens with simple for-in
     testSame("for(a in b) foo();");
 
@@ -480,7 +540,10 @@ public final class NormalizeTest extends CompilerTestCase {
     test("if (x) for(var a in b) foo()", "if (x) { var a; for(a in b) foo() }");
 
     // Verify names in destructuring declarations are individually declared.
-    test("for (var [a, b] in c) foo();", "var a; var b; for ([a, b] in c) foo();");
+    test(
+        externs(new TestExternsBuilder().addIterable().addString().build()),
+        srcs("for (var [a, b] in c) foo();"),
+        expected("var a; var b; for ([a, b] in c) foo();"));
 
     test("for (var {a, b} in c) foo();", "var a; var b; for ({a: a, b: b} in c) foo();");
   }
@@ -495,6 +558,8 @@ public final class NormalizeTest extends CompilerTestCase {
 
   @Test
   public void testForOf() {
+    ignoreWarnings(DiagnosticGroups.GLOBALLY_MISSING_PROPERTIES);
+
     // Verify nothing happens with simple for-of
     testSame("for (a of b) foo();");
 
@@ -517,6 +582,8 @@ public final class NormalizeTest extends CompilerTestCase {
 
   @Test
   public void testForAwaitOf() {
+    ignoreWarnings(DiagnosticGroups.GLOBALLY_MISSING_PROPERTIES);
+
     // Verify nothing happens with simple for-await-of
     testSame("async () => { for await (a of b) foo(); }");
 
@@ -618,6 +685,9 @@ public final class NormalizeTest extends CompilerTestCase {
 
   @Test
   public void testMakeLocalNamesUnique() {
+    ignoreWarnings(DiagnosticGroups.GLOBALLY_MISSING_PROPERTIES);
+    disableCompareJsDoc();
+
     // Verify global names are untouched.
     testSame("var a;");
 
@@ -676,6 +746,8 @@ public final class NormalizeTest extends CompilerTestCase {
 
   @Test
   public void testMakeParamNamesUnique() {
+    ignoreWarnings(DiagnosticGroups.GLOBALLY_MISSING_PROPERTIES);
+
     test(
         "function f(x) { x; }\nfunction g(x) { x; }",
         "function f(x) { x; }\nfunction g(x$jscomp$1) { x$jscomp$1; }");
@@ -699,6 +771,7 @@ public final class NormalizeTest extends CompilerTestCase {
 
   @Test
   public void testNoRenameParamNames() {
+    ignoreWarnings(DiagnosticGroups.GLOBALLY_MISSING_PROPERTIES);
     testSame("function f(x) { x; }");
 
     testSame("function f(...x) { x; }");
@@ -732,6 +805,10 @@ public final class NormalizeTest extends CompilerTestCase {
 
   @Test
   public void testRemoveDuplicateVarDeclarations3() {
+    ignoreWarnings(
+        TypeCheck.FUNCTION_MASKS_VARIABLE,
+        TypeValidator.TYPE_MISMATCH_WARNING,
+        TypeValidator.DUP_VAR_DECLARATION);
     test("var f = 1; function f(){}", "f = 1; function f(){}");
     test("var f; function f(){}", "function f(){}");
 
@@ -747,6 +824,7 @@ public final class NormalizeTest extends CompilerTestCase {
   // http://blickly.github.io/closure-compiler-issues/#290
   @Test
   public void testRemoveDuplicateVarDeclarations4() {
+    disableCompareJsDoc();
     testSame("if (!Arguments) { /** @suppress {duplicate} */ var Arguments = {}; }");
   }
 
@@ -917,6 +995,8 @@ public final class NormalizeTest extends CompilerTestCase {
 
   @Test
   public void testIsConstantByDestructuringWithDefault() {
+    ignoreWarnings(DiagnosticGroups.MISSING_PROPERTIES);
+
     test("var {CONST = 3} = {}; var b = CONST;", "var {CONST: CONST = 3} = {}; var b = CONST;");
     Node n = getLastCompiler().getRoot();
 
@@ -1024,8 +1104,25 @@ public final class NormalizeTest extends CompilerTestCase {
       assertThat(hasProp.getString()).isEqualTo("CONST");
     }
   }
+
+  @Test
+  public void testPropertyIsConstantIfMatchesConstantName() {
+    // verify that the /** @const */ 'other' doesn't accidentally cause the string key in
+    // {'other: 4'} to be marked const
+    testSame("var a = {other: 4}; /** @const */ var other = 5;");
+    Node n = getLastCompiler().getRoot();
+
+    Set<Node> constantNodes = findNodesWithProperty(n, IS_CONSTANT_NAME);
+    assertThat(constantNodes).hasSize(1);
+    for (Node hasProp : constantNodes) {
+      assertThat(hasProp.getString()).isEqualTo("other");
+    }
+  }
+
   @Test
   public void testShadowFunctionName() {
+    ignoreWarnings(DiagnosticGroups.GLOBALLY_MISSING_PROPERTIES);
+
     test(
         lines("function f() {", "  var f = 'test';", "  console.log(f);", "}"),
         lines("function f() {", "  var f$jscomp$1 = 'test';", "  console.log(f$jscomp$1);", "}"));
@@ -1156,26 +1253,36 @@ public final class NormalizeTest extends CompilerTestCase {
 
   @Test
   public void testES6ShorthandPropertySyntax05() {
+    ignoreWarnings(DiagnosticGroups.GLOBALLY_MISSING_PROPERTIES);
+
     test("var {a = 5} = obj;", "var {a: a = 5} = obj;");
   }
 
   @Test
   public void testES6ShorthandPropertySyntax06() {
+    ignoreWarnings(DiagnosticGroups.GLOBALLY_MISSING_PROPERTIES);
+
     test("var {a = 5, b = 3} = obj;", "var {a: a = 5, b: b = 3} = obj;");
   }
 
   @Test
   public void testES6ShorthandPropertySyntax07() {
+    ignoreWarnings(DiagnosticGroups.GLOBALLY_MISSING_PROPERTIES);
+
     test("var {a: a = 5, b = 3} = obj;", "var {a: a = 5, b: b = 3} = obj;");
   }
 
   @Test
   public void testES6ShorthandPropertySyntax08() {
+    ignoreWarnings(DiagnosticGroups.GLOBALLY_MISSING_PROPERTIES);
+
     test("var {a, b} = obj;", "var {a: a, b: b} = obj;");
   }
 
   @Test
   public void testES6ShorthandPropertySyntax09() {
+    ignoreWarnings(DiagnosticGroups.GLOBALLY_MISSING_PROPERTIES);
+
     test("({a = 5} = obj);", "({a: a = 5} = obj);");
   }
 
@@ -1191,6 +1298,8 @@ public final class NormalizeTest extends CompilerTestCase {
 
   @Test
   public void testES6ShorthandPropertySyntax12() {
+    ignoreWarnings(DiagnosticGroups.GLOBALLY_MISSING_PROPERTIES);
+
     testSame("({a: a = 5} = obj)");
   }
 
@@ -1206,7 +1315,9 @@ public final class NormalizeTest extends CompilerTestCase {
 
   @Test
   public void testRewriteExportSpecShorthand2() {
-    test("export {a, b as c, d};", "export {a as a, b as c, d as d};");
+    test(
+        "let a, b, d; export {a, b as c, d};",
+        "let a; let b; let d;export {a as a, b as c, d as d};");
   }
 
   @Test
@@ -1223,6 +1334,8 @@ public final class NormalizeTest extends CompilerTestCase {
 
   @Test
   public void testSplitExportDeclarationWithDestructuring() {
+    ignoreWarnings(DiagnosticGroups.MISSING_PROPERTIES);
+
     test("export var {} = {};", "var {} = {}; export {};");
     test(
         lines("let obj = {a: 3, b: 2};", "export var {a, b: d, e: f = 2} = obj;"),

@@ -17,12 +17,13 @@
 package com.google.javascript.jscomp;
 
 import static com.google.common.truth.Truth.assertThat;
-import static com.google.javascript.rhino.testing.Asserts.assertThrows;
+import static org.junit.Assert.assertThrows;
 
 import com.google.javascript.jscomp.AbstractCompiler.LifeCycleStage;
 import com.google.javascript.jscomp.ControlFlowGraph.Branch;
 import com.google.javascript.jscomp.DataFlowAnalysis.FlowJoiner;
 import com.google.javascript.jscomp.DataFlowAnalysis.LinearFlowState;
+import com.google.javascript.jscomp.NodeUtil.AllVarsDeclaredInFunction;
 import com.google.javascript.jscomp.graph.GraphNode;
 import com.google.javascript.jscomp.graph.LatticeElement;
 import com.google.javascript.rhino.InputId;
@@ -31,6 +32,7 @@ import com.google.javascript.rhino.Token;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import org.jspecify.nullness.Nullable;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -743,13 +745,21 @@ public final class DataFlowAnalysisTest {
     }
 
     // Control flow graph
-    ControlFlowAnalysis cfa = new ControlFlowAnalysis(compiler, false, true);
-    cfa.process(null, script);
-    ControlFlowGraph<Node> cfg = cfa.getCfg();
+    ControlFlowGraph<Node> cfg =
+        ControlFlowAnalysis.builder()
+            .setCompiler(compiler)
+            .setCfgRoot(script)
+            .setIncludeEdgeAnnotations(true)
+            .computeCfg();
+
+    // All variables declared in function
+    AllVarsDeclaredInFunction allVarsDeclaredInFunction =
+        NodeUtil.getAllVarsDeclaredInFunction(compiler, scopeCreator, scope);
 
     // Compute liveness of variables
     LiveVariablesAnalysis analysis =
-        new LiveVariablesAnalysis(cfg, scope, childScope, compiler, scopeCreator);
+        new LiveVariablesAnalysis(
+            cfg, scope, childScope, compiler, scopeCreator, allVarsDeclaredInFunction);
     analysis.analyze();
     return analysis.getEscapedLocals();
   }
@@ -944,14 +954,14 @@ public final class DataFlowAnalysisTest {
     assertThat(e).hasMessageThat().startsWith("Dataflow analysis appears to diverge around: ");
   }
 
-  static void verifyInHas(GraphNode<Instruction, Branch> node, Variable var,
-      Integer constant) {
+  static void verifyInHas(
+      GraphNode<Instruction, Branch> node, Variable var, @Nullable Integer constant) {
     LinearFlowState<ConstPropLatticeElement> fState = node.getAnnotation();
     veritfyLatticeElementHas(fState.getIn(), var, constant);
   }
 
-  static void verifyOutHas(GraphNode<Instruction, Branch> node, Variable var,
-      Integer constant) {
+  static void verifyOutHas(
+      GraphNode<Instruction, Branch> node, Variable var, @Nullable Integer constant) {
     LinearFlowState<ConstPropLatticeElement> fState = node.getAnnotation();
     veritfyLatticeElementHas(fState.getOut(), var, constant);
   }

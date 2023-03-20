@@ -56,7 +56,7 @@ public final class GoogleCodingConventionTest {
   }
 
   @Test
-  public void testInlineName() {
+  public void testIsConstant() {
     assertThat(conv.isConstant("a")).isFalse();
     assertThat(conv.isConstant("XYZ123_")).isTrue();
     assertThat(conv.isConstant("ABC")).isTrue();
@@ -72,6 +72,21 @@ public final class GoogleCodingConventionTest {
     assertThat(conv.isConstant("a$b$aBC")).isFalse();
     assertThat(conv.isConstant("a$b$")).isFalse();
     assertThat(conv.isConstant("$")).isFalse();
+    assertThat(conv.isConstant("$A")).isTrue();
+    assertThat(conv.isConstant("$a")).isFalse();
+  }
+
+  @Test
+  public void testIsConstantKey() {
+    assertThat(conv.isConstantKey("a")).isFalse();
+    assertThat(conv.isConstantKey("XYZ123_")).isTrue();
+    assertThat(conv.isConstantKey("ABC")).isTrue();
+    assertThat(conv.isConstantKey("ABCdef")).isFalse();
+    assertThat(conv.isConstantKey("aBC")).isFalse();
+    assertThat(conv.isConstantKey("A")).isTrue();
+    assertThat(conv.isConstantKey("_XYZ123")).isFalse();
+    assertThat(conv.isConstantKey("a$b$ABC")).isFalse();
+    assertThat(conv.isConstantKey("$")).isFalse();
   }
 
   @Test
@@ -133,18 +148,12 @@ public final class GoogleCodingConventionTest {
 
   @Test
   public void testInheritanceDetection8() {
-    assertNotClassDefining("goog.inherits(A, B, C);");
+    assertDefinesClasses("goog.inherits(A, B, C);", "A", "B");
   }
 
   @Test
   public void testInheritanceDetection9() {
     assertNotClassDefining("A.mixin(B.prototype);");
-  }
-
-  @Test
-  public void testInheritanceDetection10() {
-    assertDefinesClasses("goog.mixin(A.prototype, B.prototype);",
-        "A", "B");
   }
 
   @Test

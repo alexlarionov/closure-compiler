@@ -87,7 +87,7 @@ public class RewriteJsonToModule extends NodeTraversal.AbstractPostOrderCallback
         break;
 
       case STRING_KEY:
-        if (!n.isQuotedString() || !n.hasOneChild()) {
+        if (!n.isQuotedStringKey() || !n.hasOneChild()) {
           compiler.report(JSError.make(n, JSON_UNEXPECTED_TOKEN));
         }
         break;
@@ -141,7 +141,7 @@ public class RewriteJsonToModule extends NodeTraversal.AbstractPostOrderCallback
         IR.exprResult(IR.call(IR.getprop(IR.name("goog"), "provide"), IR.string(moduleName)))
             .srcrefTreeIfMissing(n));
 
-    String inputPath = t.getInput().getSourceFile().getOriginalPath();
+    String inputPath = t.getInput().getSourceFile().getName();
     if (inputPath.endsWith("/package.json") && jsonObject.isObjectLit()) {
       List<String> possibleMainEntries = compiler.getOptions().getPackageJsonEntryNames();
 

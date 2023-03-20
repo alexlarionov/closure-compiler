@@ -66,6 +66,14 @@ public final class CheckSideEffectsTest extends CompilerTestCase {
     test("var a, b; a = (5, 6)", "var a, b; a = (JSCOMPILER_PRESERVE(5), 6)", warning(e));
     test("var a, b; a ||= (5, 6)", "var a, b; a ||= (JSCOMPILER_PRESERVE(5), 6)", warning(e));
     test(
+        "var a, b; a = ('marker', 6)",
+        "var a, b; a = (JSCOMPILER_PRESERVE('marker'), 6)",
+        warning(e));
+    test(
+        "var a, b; a ||= ('marker', 6)",
+        "var a, b; a ||= (JSCOMPILER_PRESERVE('marker'), 6)",
+        warning(e));
+    test(
         "var a, b; a = (bar(), 6, 7)",
         "var a, b; a = (bar(), JSCOMPILER_PRESERVE(6), 7)",
         warning(e));
@@ -94,6 +102,10 @@ public final class CheckSideEffectsTest extends CompilerTestCase {
             "function f(a, b){}",
             "f(1,(JSCOMPILER_PRESERVE(2), 3));"),
         warning(e));
+  }
+
+  @Test
+  public void testUselessCodeTemplateStirngs() {
 
     test(
         "var x = `TemplateA`\n'TestB'",
@@ -115,7 +127,10 @@ public final class CheckSideEffectsTest extends CompilerTestCase {
     testSame("var templateString = `Template`;");
     testSame("tagged`Template`;");
     testSame("tagged`${name}Template`;");
+  }
 
+  @Test
+  public void testUselessCodeDestructuring() {
     testSame(lines(
         "var obj = {",
         "  itm1: 1,",
@@ -138,12 +153,18 @@ public final class CheckSideEffectsTest extends CompilerTestCase {
         "var arr = ['item1', 'item2', 'item3'];",
         "function f(){}",
         "var [ itm1 = f(), itm2 = 2 ] = badArr;"));
+  }
 
+  @Test
+  public void testUselessCodeParameters() {
     testSame("function c(a, b = 1) {}; c(1);");
     testSame("function c(a, b = f()) {}; c(1);");
     testSame("function c(a, {b, c}) {}; c(1);");
     testSame("function c(a, {b, c}) {}; c(1, {b: 2, c: 3});");
+  }
 
+  @Test
+  public void testUselessCodeArrowFunctions() {
     testWarning("var f = s => {key:s}", e);
     testWarning("var f = s => {key:s + 1}", e);
     testWarning("var f = s => {s}", e);
@@ -180,6 +201,68 @@ public final class CheckSideEffectsTest extends CompilerTestCase {
   }
 
   @Test
+  public void testUslessCodeInClassStaticBlock() {
+    testSame(
+        lines(
+            "class C {", //
+            "  static {",
+            "    function f(x) { if(x) return; }",
+            "  }",
+            "}"));
+    testWarning(
+        lines(
+            "class C {", //
+            "  static {",
+            "    function f(x) { if(x); }",
+            "  }",
+            "}"),
+        e);
+    testSame(
+        lines(
+            "class C {", //
+            "  static {",
+            "    var f = x=>x;",
+            "  }",
+            "}"));
+    testWarning(
+        lines(
+            "class C {", //
+            "  static {",
+            "    var f = (x)=>{ if(x); }",
+            "  }",
+            "}"),
+        e);
+    testSame(
+        lines(
+            "class C {", //
+            "  static {",
+            "    x = 3;",
+            "  }",
+            "}"));
+    test(
+        lines(
+            "class C {", //
+            "  static {",
+            "    x == 3;",
+            "  }",
+            "}"),
+        lines(
+            "class C {", //
+            "  static {",
+            "    JSCOMPILER_PRESERVE(x == 3);",
+            "  }",
+            "}"),
+        warning(e));
+    testSame(
+        lines(
+            "class C {", //
+            "  static {",
+            "     foo();;;;bar();;;;",
+            "  }",
+            "}"));
+  }
+
+  @Test
   public void testTypeAnnotations() {
     test("x;", "JSCOMPILER_PRESERVE(x);", warning(e));
     test("a.b.c.d;", "JSCOMPILER_PRESERVE(a.b.c.d);", warning(e));
@@ -209,16 +292,21 @@ public final class CheckSideEffectsTest extends CompilerTestCase {
     // indirect call to remove this context from module nested functions.
     testSame("(0, modPrefix.foo)('alert');");
     testSame("(0, modPrefix['foo'])('alert');");
+
+    // tagged template literals are a form of call
+    testSame("(0, modPrefix.foo)`alert ${x}`;");
+    testSame("(0, modPrefix['foo'])`alert ${x}`;");
+
     // comma not in a call expression.
     test("x = (0, foo) + 1;", "x = (JSCOMPILER_PRESERVE(0), foo) + 1;", warning(e));
     // Plain function, no indirection needed to remove this
-    test("(0, otherFn)(1);", "(JSCOMPILER_PRESERVE(0), otherFn)(1);", warning(e));
+    testSame("(0, otherFn)(1);");
     // Other expression.
-    test("(0, otherFn())(1);", "(JSCOMPILER_PRESERVE(0), otherFn())(1);", warning(e));
+    test("(0, otherFn())(1);", "otherFn()(1);");
   }
 
   @Test
-  public void testIsue504() {
+  public void testIssue504() {
     test(
         "void f();",
         "JSCOMPILER_PRESERVE(void f());",
@@ -287,11 +375,31 @@ public final class CheckSideEffectsTest extends CompilerTestCase {
     // Methods redefined in inner scopes should not trigger a warning
     testSame(
         externs(externs),
-        srcs(lines(
-            "(function() {",
-            "  var foo = {};",
-            "  foo.noSideEffectsExtern = function() {};",
-            "  noSideEffectsExtern();",
-            " })()")));
+        srcs(
+            lines(
+                "(function() {",
+                "  var foo = {};",
+                "  foo.noSideEffectsExtern = function() {};",
+                "  noSideEffectsExtern();",
+                " })()")));
+  }
+
+  @Test
+  public void testIgnoresRuntimeLibRequireStatementsOnly() {
+    testSame(srcs(SourceFile.fromCode(AbstractCompiler.RUNTIME_LIB_DIR, "'require base'")));
+
+    testWarning(
+        srcs(SourceFile.fromCode(AbstractCompiler.RUNTIME_LIB_DIR, "'other string lit'")),
+        warning(CheckSideEffects.USELESS_CODE_ERROR));
+
+    testWarning(
+        srcs(
+            SourceFile.fromCode(
+                AbstractCompiler.RUNTIME_LIB_DIR, "function f() { 'require base' }")),
+        warning(CheckSideEffects.USELESS_CODE_ERROR));
+
+    testWarning(
+        srcs(SourceFile.fromCode("other/file.js", "'require base'")),
+        warning(CheckSideEffects.USELESS_CODE_ERROR));
   }
 }

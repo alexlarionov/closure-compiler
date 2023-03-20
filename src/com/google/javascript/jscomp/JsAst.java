@@ -30,6 +30,7 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.function.Supplier;
+import org.jspecify.nullness.Nullable;
 
 /**
  * Generates an AST for a JavaScript source file.
@@ -39,19 +40,13 @@ public class JsAst implements SourceAst {
 
   private final InputId inputId;
   private final SourceFile sourceFile;
-  private final Supplier<Node> immutableRootSource;
 
-  private Node root;
+  private @Nullable Node root;
   private FeatureSet features;
 
   public JsAst(SourceFile sourceFile) {
-    this(sourceFile, null);
-  }
-
-  public JsAst(SourceFile sourceFile, Supplier<Node> immutableRootSource) {
     this.inputId = new InputId(sourceFile.getName());
     this.sourceFile = sourceFile;
-    this.immutableRootSource = immutableRootSource;
   }
 
   @Override
@@ -60,15 +55,17 @@ public class JsAst implements SourceAst {
       return this.root;
     }
 
-    if (this.immutableRootSource != null) {
-      this.root = this.immutableRootSource.get();
+    Supplier<Node> astRootSource = compiler.getTypedAstDeserializer(this.sourceFile);
+    if (astRootSource != null) {
+      this.root = astRootSource.get();
       this.features = (FeatureSet) this.root.getProp(Node.FEATURE_SET);
     } else {
       this.parse(compiler);
     }
     checkState(identical(this.root.getStaticSourceFile(), this.sourceFile));
     this.root.setInputId(this.inputId);
-
+    // Clear the cached source after parsing.  It will be re-read for snippet generation if needed.
+    sourceFile.clearCachedSource();
     return this.root;
   }
 
@@ -153,8 +150,6 @@ public class JsAst implements SourceAst {
   }
 
   private void parse(AbstractCompiler compiler) {
-    checkState(this.immutableRootSource == null);
-
     RecordingReporterProxy reporter = new RecordingReporterProxy(
         compiler.getDefaultErrorReporter());
 
@@ -187,8 +182,6 @@ public class JsAst implements SourceAst {
 
     if (root == null) {
       root = IR.script();
-    } else {
-      compiler.prepareAst(root);
     }
 
     if (!reporter.errors.isEmpty() || !reporter.warnings.isEmpty()) {

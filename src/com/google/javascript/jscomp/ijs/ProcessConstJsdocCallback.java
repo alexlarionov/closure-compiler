@@ -22,7 +22,7 @@ import com.google.javascript.jscomp.NodeTraversal;
 import com.google.javascript.jscomp.NodeUtil;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.QualifiedName;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  * A callback that calls the abstract method on every "inferrable const". This is a constant
@@ -118,13 +118,15 @@ abstract class ProcessConstJsdocCallback extends NodeTraversal.AbstractPostOrder
     checkArgument(NodeUtil.isNameDeclaration(lhs.getParent()) || lhs.getParent().isAssign());
     boolean isImport = PotentialDeclaration.isImportRhs(rhs);
     boolean isAlias = PotentialDeclaration.isAliasDeclaration(lhs, rhs);
-    for (Node name : NodeUtil.findLhsNodesInNode(lhs.getParent())) {
-      if (isAlias || isImport) {
-        currentFile.recordAliasDeclaration(name);
-      } else {
-        currentFile.recordNameDeclaration(name);
-      }
-    }
+    NodeUtil.visitLhsNodesInNode(
+        lhs.getParent(),
+        (name) -> {
+          if (isAlias || isImport) {
+            currentFile.recordAliasDeclaration(name);
+          } else {
+            currentFile.recordNameDeclaration(name);
+          }
+        });
   }
 
   private void processDeclarationWithRhs(NodeTraversal t, Node lhs) {

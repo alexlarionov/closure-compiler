@@ -95,6 +95,9 @@ MediaTrackCapabilities.prototype.frameRate;
 /** @type {!Array<string>} */
 MediaTrackCapabilities.prototype.facingMode;
 
+/** @type {!Array<string>} */
+MediaTrackCapabilities.prototype.resizeMode;
+
 /** @type {number} */
 MediaTrackCapabilities.prototype.volume;
 
@@ -177,6 +180,9 @@ MediaTrackSettings.prototype.frameRate;
 /** @type {string} */
 MediaTrackSettings.prototype.facingMode;
 
+/** @type {string} */
+MediaTrackSettings.prototype.resizeMode;
+
 /** @type {number} */
 MediaTrackSettings.prototype.volume;
 
@@ -188,6 +194,12 @@ MediaTrackSettings.prototype.sampleSize;
 
 /** @type {boolean} */
 MediaTrackSettings.prototype.echoCancellation;
+
+/** @type {boolean} */
+MediaTrackSettings.prototype.autoGainControl;
+
+/** @type {boolean} */
+MediaTrackSettings.prototype.noiseSuppression;
 
 /** @type {number} */
 MediaTrackSettings.prototype.latency;
@@ -261,6 +273,9 @@ MediaTrackSupportedConstraints.prototype.frameRate;
 
 /** @type {boolean|undefined} */
 MediaTrackSupportedConstraints.prototype.facingMode;
+
+/** @type {boolean|undefined} */
+MediaTrackSupportedConstraints.prototype.resizeMode;
 
 /** @type {boolean|undefined} */
 MediaTrackSupportedConstraints.prototype.volume;
@@ -423,14 +438,14 @@ function MediaStream(streamOrTracks) {}
 /**
  * @override
  */
-MediaStream.prototype.addEventListener = function(type, listener,
-    opt_useCapture) {};
+MediaStream.prototype.addEventListener = function(
+    type, listener, opt_useCapture) {};
 
 /**
  * @override
  */
-MediaStream.prototype.removeEventListener = function(type, listener,
-    opt_useCapture) {};
+MediaStream.prototype.removeEventListener = function(
+    type, listener, opt_useCapture) {};
 
 /**
  * @override
@@ -566,8 +581,8 @@ function RTCDTMFSender() {}
  * @param {number=} opt_duration
  * @param {number=} opt_interToneGap
  */
-RTCDTMFSender.prototype.insertDTMF =
-    function(tones, opt_duration, opt_interToneGap) {};
+RTCDTMFSender.prototype.insertDTMF = function(
+    tones, opt_duration, opt_interToneGap) {};
 
 /**
  * @type {?boolean}
@@ -620,62 +635,87 @@ var RTCRtpCapabilities;
 
 
 /**
- * @constructor
- * @see https://www.w3.org/TR/webrtc/#rtcrtpsender-interface
+ * @record
+ * @see https://www.w3.org/TR/webrtc/#dom-rtcrtpheaderextensionparameters
  */
-function RTCRtpSender() {}
+function RTCRtpHeaderExtensionParameters() {}
 
-/**
- * @const {!RTCDTMFSender}
- */
-RTCRtpSender.prototype.dtmf;
+/** @type {string} */
+RTCRtpHeaderExtensionParameters.prototype.uri;
 
-/**
- * @const {!MediaStreamTrack}
- */
-RTCRtpSender.prototype.track;
+/** @type {number} */
+RTCRtpHeaderExtensionParameters.prototype.id;
 
-/**
- * @param {?MediaStreamTrack} track
- * @return {!Promise<void>}
- * @see https://www.w3.org/TR/webrtc/#dom-rtcrtpsender
- */
-RTCRtpSender.prototype.replaceTrack = function(track) {};
-
-
-/**
- * @return {!RTCRtpSendParameters}
- */
-RTCRtpSender.prototype.getParameters = function() {};
-
-
-/**
- * @param {!RTCRtpSendParameters} params
- * @return {!Promise<undefined>}
- */
-RTCRtpSender.prototype.setParameters = function(params) {};
-
-
-/**
- * @return {!Promise<!RTCStatsReport>}
- */
-RTCRtpSender.prototype.getStats = function() {};
-
-/**
- * @param {string} kind
- * @return {?RTCRtpCapabilities}
- */
-RTCRtpSender.getCapabilities = function(kind) {};
+/** @type {boolean|undefined} */
+RTCRtpHeaderExtensionParameters.prototype.encrypted;
 
 
 /**
  * @record
+ * @see https://www.w3.org/TR/webrtc/#dom-rtcrtcpparameters
+ */
+function RTCRtcpParameters() {}
+
+/** @type {string|undefined} */
+RTCRtcpParameters.prototype.cname;
+
+/** @type {boolean|undefined} */
+RTCRtcpParameters.prototype.reducedSize;
+
+
+/**
+ * @record
+ * @see https://www.w3.org/TR/webrtc/#dom-rtcrtpcodecparameters
+ */
+function RTCRtpCodecParameters() {}
+
+/** @type {number} */
+RTCRtpCodecParameters.prototype.cname;
+
+/** @type {string} */
+RTCRtpCodecParameters.prototype.mimeType;
+
+/** @type {number} */
+RTCRtpCodecParameters.prototype.clockRate;
+
+/** @type {number} */
+RTCRtpCodecParameters.prototype.channels;
+
+/** @type {string|undefined} */
+RTCRtpCodecParameters.prototype.sdpFmtpLine;
+
+
+/**
+ * @record
+ * @see https://www.w3.org/TR/webrtc/#dom-rtcrtpparameters
+ */
+function RTCRtpParameters() {}
+
+/**
+ * @type {!Array<!RTCRtpHeaderExtensionParameters>}
+ */
+RTCRtpParameters.prototype.headerExtensions;
+
+/**
+ * @type {!RTCRtcpParameters}
+ */
+RTCRtpParameters.prototype.rtcp;
+
+/**
+ * @type {!Array<!RTCRtpCodecParameters>}
+ */
+RTCRtpParameters.prototype.codecs;
+
+
+/**
+ * @record
+ * @extends {RTCRtpParameters}
  * @see https://www.w3.org/TR/webrtc/#dom-rtcrtpsendparameters
  */
 function RTCRtpSendParameters() {}
 
 /**
- * @type {string|undefined}
+ * @type {string}
  */
 RTCRtpSendParameters.prototype.transactionId;
 
@@ -690,6 +730,71 @@ RTCRtpSendParameters.prototype.encodings;
  * @type {string|undefined}
  */
 RTCRtpSendParameters.prototype.degradationPreference;
+
+
+/**
+ * @record
+ * @extends {RTCRtpParameters}
+ * @see https://www.w3.org/TR/webrtc/#dom-rtcrtpreceiveparameters
+ */
+function RTCRtpReceiveParameters() {}
+
+
+/**
+ * @constructor
+ * @see https://www.w3.org/TR/webrtc/#rtcrtpsender-interface
+ */
+function RTCRtpSender() {}
+
+/**
+ * @const {!RTCDTMFSender}
+ */
+RTCRtpSender.prototype.dtmf;
+
+/**
+ * @const {?MediaStreamTrack}
+ */
+RTCRtpSender.prototype.track;
+
+/**
+ * @const {?RTCDtlsTransport}
+ */
+RTCRtpSender.prototype.transport;
+
+/**
+ * @param {?MediaStreamTrack} track
+ * @return {!Promise<void>}
+ * @see https://www.w3.org/TR/webrtc/#dom-rtcrtpsender
+ */
+RTCRtpSender.prototype.replaceTrack = function(track) {};
+
+/**
+ * @return {!RTCRtpSendParameters}
+ */
+RTCRtpSender.prototype.getParameters = function() {};
+
+/**
+ * @param {!RTCRtpSendParameters} params
+ * @return {!Promise<undefined>}
+ */
+RTCRtpSender.prototype.setParameters = function(params) {};
+
+/**
+ * @param {...!MediaStream} streams
+ * @return {undefined}
+ */
+RTCRtpSender.prototype.setStreams = function(streams) {};
+
+/**
+ * @return {!Promise<!RTCStatsReport>}
+ */
+RTCRtpSender.prototype.getStats = function() {};
+
+/**
+ * @param {string} kind
+ * @return {?RTCRtpCapabilities}
+ */
+RTCRtpSender.getCapabilities = function(kind) {};
 
 
 /**
@@ -725,9 +830,17 @@ RTCRtpContributingSource.prototype.rtpTimestamp;
  * This is a relatively new field and browsers may not yet be compliant to the
  * spec.
  * @type {number|undefined}
- * @see https://w3c.github.io/webrtc-extensions/#dictionary-rtcrtpcontributingsource-members
+ * @see https://w3c.github.io/webrtc-extensions/#dom-rtcrtpcontributingsource-capturetimestamp
  */
 RTCRtpContributingSource.prototype.captureTimestamp;
+
+/**
+ * This is a relatively new field and browsers may not yet be compliant to the
+ * spec.
+ * @type {number|undefined}
+ * @see https://w3c.github.io/webrtc-extensions/#dom-rtcrtpcontributingsource-sendercapturetimeoffset
+ */
+RTCRtpContributingSource.prototype.senderCaptureTimeOffset;
 
 /**
  * @constructor
@@ -739,6 +852,16 @@ function RTCRtpReceiver() {}
  * @const {!MediaStreamTrack}
  */
 RTCRtpReceiver.prototype.track;
+
+/**
+ * @const {?RTCDtlsTransport}
+ */
+RTCRtpReceiver.prototype.transport;
+
+/**
+ * @return {!RTCRtpReceiveParameters}
+ */
+RTCRtpReceiver.prototype.getParameters = function() {};
 
 /**
  * @return {!Array<!RTCRtpContributingSource>}
@@ -1098,6 +1221,11 @@ MediaTrackConstraintSet.prototype.latency;
 MediaTrackConstraintSet.prototype.noiseSuppression;
 
 /**
+ * @type {ConstrainDOMString|undefined}
+ */
+MediaTrackConstraintSet.prototype.resizeMode;
+
+/**
  * @type {ConstrainLong|undefined}
  */
 MediaTrackConstraintSet.prototype.sampleRate;
@@ -1144,6 +1272,70 @@ MediaStreamConstraints.prototype.audio;
  * @type {boolean|MediaTrackConstraints|undefined}
  */
 MediaStreamConstraints.prototype.video;
+
+/**
+ * @see https://wicg.github.io/prefer-current-tab/
+ * @type {boolean|undefined}
+ */
+MediaStreamConstraints.prototype.preferCurrentTab;
+
+/**
+ * @constructor
+ * @see https://w3c.github.io/mediacapture-screen-share/#dom-capturecontroller
+ */
+function CaptureController() {}
+
+/**
+ * @param {string} focusBehavior
+ * @return {undefined}
+ * @see https://w3c.github.io/mediacapture-screen-share/#dom-capturestartfocusbehavior
+ */
+CaptureController.prototype.setFocusBehavior = function(focusBehavior) {};
+
+/**
+ * @see https://w3c.github.io/mediacapture-screen-share/#dom-displaymediastreamoptions
+ * @record
+ */
+function DisplayMediaStreamOptions() {}
+
+/**
+ * @type {boolean|MediaTrackConstraints|undefined}
+ */
+DisplayMediaStreamOptions.prototype.audio;
+
+/**
+ * @type {boolean|MediaTrackConstraints|undefined}
+ */
+DisplayMediaStreamOptions.prototype.video;
+
+/**
+ * @type {!CaptureController|undefined}
+ */
+DisplayMediaStreamOptions.prototype.controller;
+
+/**
+ * @see https://w3c.github.io/mediacapture-screen-share/#dom-selfcapturepreferenceenum
+ * @type {string|undefined}
+ */
+DisplayMediaStreamOptions.prototype.selfBrowserSurface;
+
+/**
+ * @see https://w3c.github.io/mediacapture-screen-share/#dom-systemaudiopreferenceenum
+ * @type {string|undefined}
+ */
+DisplayMediaStreamOptions.prototype.surfaceSwitching;
+
+/**
+ * @see https://w3c.github.io/mediacapture-screen-share/#dom-surfaceswitchingpreferenceenum
+ * @type {string|undefined}
+ */
+DisplayMediaStreamOptions.prototype.systemAudio;
+
+/**
+ * @see https://wicg.github.io/prefer-current-tab/
+ * @type {boolean|undefined}
+ */
+DisplayMediaStreamOptions.prototype.preferCurrentTab;
 
 /**
  * @see {http://dev.w3.org/2011/webrtc/editor/getusermedia.html#
@@ -1225,14 +1417,14 @@ function MediaRecorder(stream, options) {}
 /**
  * @override
  */
-MediaRecorder.prototype.addEventListener = function(type, listener,
-    opt_useCapture) {};
+MediaRecorder.prototype.addEventListener = function(
+    type, listener, opt_useCapture) {};
 
 /**
  * @override
  */
-MediaRecorder.prototype.removeEventListener = function(type, listener,
-    opt_useCapture) {};
+MediaRecorder.prototype.removeEventListener = function(
+    type, listener, opt_useCapture) {};
 
 /**
  * @override
@@ -1317,6 +1509,40 @@ MediaRecorder.prototype.requestData = function() {};
  * @return {boolean}
  */
 MediaRecorder.isTypeSupported = function(type) {};
+
+/**
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorderErrorEvent
+ * @interface
+ */
+function MediaRecorderErrorEvent() {}
+
+/**
+ * @type {DOMException} type
+ */
+MediaRecorderErrorEvent.prototype.error;
+
+/**
+ * @interface
+ */
+function MediaRecorderEventMap() {}
+
+/** @type {BlobEvent} */
+MediaRecorderEventMap.prototype.dataavailable;
+
+/** @type {Event} */
+MediaRecorderEventMap.prototype.error;
+
+/** @type {Event} */
+MediaRecorderEventMap.prototype.pause;
+
+/** @type {Event} */
+MediaRecorderEventMap.prototype.resume;
+
+/** @type {Event} */
+MediaRecorderEventMap.prototype.start;
+
+/** @type {Event} */
+MediaRecorderEventMap.prototype.stop;
 
 /**
  * @constructor
@@ -1479,8 +1705,7 @@ MediaDeviceInfo.prototype.groupId;
  * @extends {MediaDeviceInfo}
  * @see https://www.w3.org/TR/mediacapture-streams/#input-specific-device-info
  */
-function InputDeviceInfo() {
-}
+function InputDeviceInfo() {}
 
 /** @return {!MediaTrackCapabilities} */
 InputDeviceInfo.prototype.getCapabilities = function() {};
@@ -1502,20 +1727,20 @@ MediaDevices.prototype.enumerateDevices = function() {};
  * @param {!MediaStreamConstraints} constraints
  * @return {!Promise<!MediaStream>}
  */
-MediaDevices.prototype.getUserMedia = function(constraints) {}
+MediaDevices.prototype.getUserMedia = function(constraints) {};
 
 /**
  * @see https://w3c.github.io/mediacapture-screen-share/#dom-mediadevices-getdisplaymedia
- * @param {!MediaStreamConstraints=} constraints
+ * @param {!DisplayMediaStreamOptions=} options
  * @return {!Promise<!MediaStream>}
  */
-MediaDevices.prototype.getDisplayMedia = function(constraints) {}
+MediaDevices.prototype.getDisplayMedia = function(options) {};
 
 /**
  * @see https://w3c.github.io/mediacapture-main/#dom-mediadevices-getsupportedconstraints
  * @return {!MediaTrackSupportedConstraints}
  */
-MediaDevices.prototype.getSupportedConstraints = function()  {}
+MediaDevices.prototype.getSupportedConstraints = function() {};
 
 /** @const {!MediaDevices} */
 Navigator.prototype.mediaDevices;
@@ -1530,23 +1755,36 @@ Navigator.prototype.mediaDevices;
 var RTCSdpType;
 
 /**
- * @param {!Object=} descriptionInitDict The RTCSessionDescriptionInit
- * dictionary.  This optional argument may have type
- * {type:RTCSdpType, sdp:string}, but neither of these keys are required to be
- * present, and other keys are ignored, so the closest Closure type is Object.
+ * @record
+ * @see https://www.w3.org/TR/webrtc/#dom-rtcsessiondescriptioninit
+ */
+function RTCSessionDescriptionInit() {}
+
+/**
+ * @type {RTCSdpType|undefined}
+ */
+RTCSessionDescriptionInit.prototype.type;
+
+/**
+ * @type {string|undefined}
+ */
+RTCSessionDescriptionInit.prototype.sdp;
+
+/**
+ * @param {!RTCSessionDescriptionInit=} descriptionInitDict
  * @constructor
  * @see https://www.w3.org/TR/webrtc/#rtcsessiondescription-class
  */
 function RTCSessionDescription(descriptionInitDict) {}
 
 /**
- * @type {?RTCSdpType}
+ * @type {RTCSdpType}
  * @see https://www.w3.org/TR/webrtc/#dom-rtcsessiondescription-type
  */
 RTCSessionDescription.prototype.type;
 
 /**
- * @type {?string}
+ * @type {string}
  * @see https://www.w3.org/TR/webrtc/#dom-rtcsessiondescription-sdp
  */
 RTCSessionDescription.prototype.sdp;
@@ -1585,26 +1823,54 @@ RTCIceCandidateInit.prototype.sdpMLineIndex;
 RTCIceCandidateInit.prototype.usernameFragment;
 
 /**
- * @param {!RTCIceCandidateInit=} candidateInitDict  The RTCIceCandidateInit dictionary.
+ * @param {!RTCIceCandidateInit=} candidateInitDict  The RTCIceCandidateInit
+ *     dictionary.
  * @constructor
  * @see https://www.w3.org/TR/webrtc/#rtcicecandidate-interface
  */
 function RTCIceCandidate(candidateInitDict) {}
 
-/**
- * @type {?string}
- */
+/** @type {string} */
 RTCIceCandidate.prototype.candidate;
 
-/**
- * @type {?string}
- */
+/** @type {?string} */
 RTCIceCandidate.prototype.sdpMid;
 
-/**
- * @type {?number}
- */
+/** @type {?number} */
 RTCIceCandidate.prototype.sdpMLineIndex;
+
+/** @type {?string} */
+RTCIceCandidate.prototype.foundation;
+
+/** @type {?string} */
+RTCIceCandidate.prototype.component;
+
+/** @type {?number} */
+RTCIceCandidate.prototype.priority;
+
+/** @type {?string} */
+RTCIceCandidate.prototype.address;
+
+/** @type {?string} */
+RTCIceCandidate.prototype.protocol;
+
+/** @type {?number} */
+RTCIceCandidate.prototype.port;
+
+/** @type {?string} */
+RTCIceCandidate.prototype.type;
+
+/** @type {?string} */
+RTCIceCandidate.prototype.tcpType;
+
+/** @type {?string} */
+RTCIceCandidate.prototype.relatedAddress;
+
+/** @type {?number} */
+RTCIceCandidate.prototype.relatedPort;
+
+/** @type {?string} */
+RTCIceCandidate.prototype.usernameFragment;
 
 /**
  * @typedef {{urls: string}|{urls: !Array<string>}}
@@ -1644,32 +1910,43 @@ RTCIceServerInterface_.prototype.credential;
 var RTCIceServer;
 
 /**
- * @typedef {{
- *   iceServers: !Array<!RTCIceServer>,
- *   iceTransportPolicy: (string|undefined),
- *   sdpSemantics: (string|undefined)
- * }}
- * @private
+ * @record
+ * @see https://www.w3.org/TR/webrtc/#dom-rtcconfiguration
  */
-var RTCConfigurationRecord_;
-
-/**
- * @interface
- * @private
- */
-function RTCConfigurationInterface_() {}
+function RTCConfiguration() {}
 
 /**
  * @type {!Array<!RTCIceServer>}
  */
-RTCConfigurationInterface_.prototype.iceServers;
+RTCConfiguration.prototype.iceServers;
 
 /**
  * Allows specifying the ICE transport policy. Valid values are "all" and
  * "relay", with "all" being the default.
  * @type {string|undefined}
  */
-RTCConfigurationInterface_.prototype.iceTransportPolicy;
+RTCConfiguration.prototype.iceTransportPolicy;
+
+/**
+ * Indicates which media-bundling policy to use when gathering ICE candidates.
+ * Valid values are "balanced", "max-compat" and "max-bundle", with "balanced"
+ * being the default.
+ * @type {string|undefined}
+ */
+RTCConfiguration.prototype.bundlePolicy;
+
+/**
+ * Indicates which rtcp-mux policy to use when gathering ICE candidates. The
+ * only valid value is "require".
+ * @type {string|undefined}
+ */
+RTCConfiguration.prototype.rtcpMuxPolicy;
+
+/** @type {!Array<!RTCCertificate>|undefined} */
+RTCConfiguration.prototype.certificates;
+
+/** @type {number|undefined} */
+RTCConfiguration.prototype.iceCandidatePoolSize;
 
 /**
  * Allows specifying the SDP semantics. Valid values are "plan-b" and
@@ -1678,12 +1955,7 @@ RTCConfigurationInterface_.prototype.iceTransportPolicy;
  * @see {@link https://webrtc.org/web-apis/chrome/unified-plan/}
  * @type {string|undefined}
  */
-RTCConfigurationInterface_.prototype.sdpSemantics;
-
-/**
- * @typedef {RTCConfigurationRecord_|RTCConfigurationInterface_}
- */
-var RTCConfiguration;
+RTCConfiguration.prototype.sdpSemantics;
 
 /**
  * @typedef {function(!RTCSessionDescription)}
@@ -1722,6 +1994,7 @@ var RTCIceGatheringState;
 var RTCPeerConnectionState;
 
 /**
+ * @see https://www.w3.org/TR/webrtc/#dom-rtcpeerconnectioniceevent
  * @param {string} type
  * @param {!Object} eventInitDict
  * @extends {Event}
@@ -1733,6 +2006,153 @@ function RTCPeerConnectionIceEvent(type, eventInitDict) {}
  * @const {RTCIceCandidate}
  */
 RTCPeerConnectionIceEvent.prototype.candidate;
+
+/**
+ * @const {?string}
+ */
+RTCPeerConnectionIceEvent.prototype.url;
+
+/**
+ * @see https://www.w3.org/TR/webrtc/#dom-rtcpeerconnectioniceerrorevent
+ * @param {string} type
+ * @param {!Object} eventInitDict
+ * @extends {Event}
+ * @constructor
+ */
+function RTCPeerConnectionIceErrorEvent(type, eventInitDict) {}
+
+/** @const {?string} */
+RTCPeerConnectionIceErrorEvent.prototype.address;
+
+/** @const {?number} */
+RTCPeerConnectionIceErrorEvent.prototype.port;
+
+/** @const {string} */
+RTCPeerConnectionIceErrorEvent.prototype.url;
+
+/** @const {number} */
+RTCPeerConnectionIceErrorEvent.prototype.errorCode;
+
+/** @const {string} */
+RTCPeerConnectionIceErrorEvent.prototype.errorText;
+
+
+/**
+ * @constructor
+ * @see https://www.w3.org/TR/webrtc/#dom-rtcicecandidatepair
+ */
+function RTCIceCandidatePair() {}
+
+/** @const {!RTCIceCandidate|undefined} */
+RTCIceCandidatePair.prototype.local;
+
+/** @const {!RTCIceCandidate|undefined} */
+RTCIceCandidatePair.prototype.remote;
+
+
+/**
+ * @constructor
+ * @see https://www.w3.org/TR/webrtc/#dom-rtciceparameters
+ */
+function RTCIceParameters() {}
+
+/** @const {string|undefined} */
+RTCIceParameters.prototype.usernameFragment;
+
+/** @const {string|undefined} */
+RTCIceParameters.prototype.password;
+
+
+/**
+ * @interface
+ * @extends {EventTarget}
+ * @see https://www.w3.org/TR/webrtc/#dom-rtcicetransport
+ */
+function RTCIceTransport() {}
+
+/** @const {string} */
+RTCIceTransport.prototype.role;
+
+/** @const {string} */
+RTCIceTransport.prototype.component;
+
+/** @const {string} */
+RTCIceTransport.prototype.state;
+
+/** @const {string} */
+RTCIceTransport.prototype.gatheringState;
+
+/** @return {!Array<!RTCIceCandidate>} */
+RTCIceTransport.prototype.getLocalCandidates = function() {};
+
+/** @return {!Array<!RTCIceCandidate>} */
+RTCIceTransport.prototype.getRemoteCandidates = function() {};
+
+/** @return {?RTCIceCandidatePair} */
+RTCIceTransport.prototype.getSelectedCandidatePair = function() {};
+
+/** @return {?RTCIceParameters} */
+RTCIceTransport.prototype.getLocalParameters = function() {};
+
+/** @return {?RTCIceParameters} */
+RTCIceTransport.prototype.getRemoteParameters = function() {};
+
+/** @type {?function(!Event)} */
+RTCIceTransport.prototype.onstatechange;
+
+/** @type {?function(!Event)} */
+RTCIceTransport.prototype.ongatheringstatechange;
+
+/** @type {?function(!Event)} */
+RTCIceTransport.prototype.onselectedcandidatepairchange;
+
+
+/**
+ * @interface
+ * @extends {EventTarget}
+ * @see https://www.w3.org/TR/webrtc/#dom-rtcdtlstransport
+ */
+function RTCDtlsTransport() {}
+
+/** @const {!RTCIceTransport} */
+RTCDtlsTransport.prototype.iceTransport;
+
+/** @const {string} */
+RTCDtlsTransport.prototype.state;
+
+/** @return {!Array<!ArrayBuffer>} */
+RTCDtlsTransport.prototype.getRemoteCertificates = function() {};
+
+/** @type {?function(!Event)} */
+RTCDtlsTransport.prototype.onstatechange;
+
+/** @type {?function(!RTCErrorEvent)} */
+RTCDtlsTransport.prototype.onerror;
+
+
+/**
+ * @interface
+ * @extends {EventTarget}
+ * @see https://www.w3.org/TR/webrtc/#dom-rtcsctptransport
+ */
+function RTCSctpTransport() {}
+
+/** @const {!RTCDtlsTransport} */
+RTCSctpTransport.prototype.transport;
+
+/** @const {string} */
+RTCSctpTransport.prototype.state;
+
+/** @const {number} */
+RTCSctpTransport.prototype.maxMessageSize;
+
+/** @const {?number} */
+RTCSctpTransport.prototype.maxChannels;
+
+/** @type {?function(!Event)} */
+RTCSctpTransport.prototype.onstatechange;
+
+
 
 // Note: The specification of RTCStats types is still under development.
 // Declarations here will be updated and removed to follow the development of
@@ -1787,6 +2207,32 @@ RTCRtpStreamStats.prototype.codecId;
 
 
 /**
+ * @see https://www.w3.org/TR/webrtc-stats/#dom-rtccodecstats
+ * @interface
+ * @extends {RTCStats}
+ */
+function RTCCodecStats() {}
+
+/** @const {number} */
+RTCCodecStats.prototype.payloadType;
+
+/** @const {string} */
+RTCCodecStats.prototype.transportId;
+
+/** @const {string} */
+RTCCodecStats.prototype.mimeType;
+
+/** @const {number|undefined} */
+RTCCodecStats.prototype.clockRate;
+
+/** @const {number|undefined} */
+RTCCodecStats.prototype.channels;
+
+/** @const {string|undefined} */
+RTCCodecStats.prototype.sdpFmtpLine;
+
+
+/**
  * @see https://www.w3.org/TR/webrtc-stats/#dom-rtcreceivedrtpstreamstats
  * @interface
  * @extends {RTCRtpStreamStats}
@@ -1803,43 +2249,7 @@ RTCReceivedRtpStreamStats.prototype.packetsLost;
 RTCReceivedRtpStreamStats.prototype.jitter;
 
 /** @const {number} */
-RTCReceivedRtpStreamStats.prototype.packetsDiscarded;
-
-/** @const {number} */
-RTCReceivedRtpStreamStats.prototype.packetsRepaired;
-
-/** @const {number} */
-RTCReceivedRtpStreamStats.prototype.burstPacketsLost;
-
-/** @const {number} */
-RTCReceivedRtpStreamStats.prototype.burstPacketsDiscarded;
-
-/** @const {number} */
-RTCReceivedRtpStreamStats.prototype.burstLossCount;
-
-/** @const {number} */
-RTCReceivedRtpStreamStats.prototype.burstDiscardCount;
-
-/** @const {number} */
-RTCReceivedRtpStreamStats.prototype.burstLossRate;
-
-/** @const {number} */
-RTCReceivedRtpStreamStats.prototype.burstDiscardRate;
-
-/** @const {number} */
-RTCReceivedRtpStreamStats.prototype.gapLossRate;
-
-/** @const {number} */
-RTCReceivedRtpStreamStats.prototype.gapDiscardRate;
-
-/** @const {number} */
 RTCReceivedRtpStreamStats.prototype.framesDropped;
-
-/** @const {number} */
-RTCReceivedRtpStreamStats.prototype.partialFramesLost;
-
-/** @const {number} */
-RTCReceivedRtpStreamStats.prototype.fullFramesLost;
 
 
 /**
@@ -1853,7 +2263,13 @@ function RTCInboundRtpStreamStats() {}
 RTCInboundRtpStreamStats.prototype.trackId;
 
 /** @const {string} */
-RTCInboundRtpStreamStats.prototype.receiverId;
+RTCInboundRtpStreamStats.prototype.trackIdentifier;
+
+/** @const {string} */
+RTCInboundRtpStreamStats.prototype.kind;
+
+/** @const {string} */
+RTCInboundRtpStreamStats.prototype.mid;
 
 /** @const {string} */
 RTCInboundRtpStreamStats.prototype.remoteId;
@@ -1871,9 +2287,6 @@ RTCInboundRtpStreamStats.prototype.frameWidth;
 RTCInboundRtpStreamStats.prototype.frameHeight;
 
 /** @const {number} */
-RTCInboundRtpStreamStats.prototype.frameBitDepth;
-
-/** @const {number} */
 RTCInboundRtpStreamStats.prototype.framesPerSecond;
 
 /** @const {number} */
@@ -1888,17 +2301,14 @@ RTCInboundRtpStreamStats.prototype.totalInterframeDelay;
 /** @const {number} */
 RTCInboundRtpStreamStats.prototype.totalSquaredInterFrameDelay;
 
-/** @const {boolean} */
-RTCInboundRtpStreamStats.prototype.voiceActivityFlag;
-
 /** @const {?Date|number} */
 RTCInboundRtpStreamStats.prototype.lastPacketReceivedTimestamp;
 
 /** @const {number} */
-RTCInboundRtpStreamStats.prototype.averageRtcpInterval;
+RTCInboundRtpStreamStats.prototype.headerBytesReceived;
 
 /** @const {number} */
-RTCInboundRtpStreamStats.prototype.headerBytesReceived;
+RTCInboundRtpStreamStats.prototype.packetsDiscarded;
 
 /**
  * Not available in Safari 13, Firefox 69 (Chrome 81+ only).
@@ -1916,14 +2326,6 @@ RTCInboundRtpStreamStats.prototype.fecPacketsDiscarded;
 RTCInboundRtpStreamStats.prototype.bytesReceived;
 
 /** @const {number} */
-RTCInboundRtpStreamStats.prototype.packetsFailedDecryption;
-
-/** @const {number} */
-RTCInboundRtpStreamStats.prototype.packetsDuplicated;
-
-// TODO: record<USVString, unsigned long long> perDscpPacketsReceived;
-
-/** @const {number} */
 RTCInboundRtpStreamStats.prototype.nackCount;
 
 /** @const {number} */
@@ -1932,8 +2334,8 @@ RTCInboundRtpStreamStats.prototype.firCount;
 /** @const {number} */
 RTCInboundRtpStreamStats.prototype.pliCount;
 
-/** @const {number} */
-RTCInboundRtpStreamStats.prototype.sliCount;
+/** @const {number|undefined} */
+RTCInboundRtpStreamStats.prototype.totalProcessingDelay;
 
 /** @const {?Date|number} */
 RTCInboundRtpStreamStats.prototype.estimatedPlayoutTimestamp;
@@ -1947,9 +2349,6 @@ RTCInboundRtpStreamStats.prototype.bitrateMean;
 /** @const {number|undefined} */
 RTCInboundRtpStreamStats.prototype.jitterBufferDelay;
 
-/** @const {number|undefined} */
-RTCInboundRtpStreamStats.prototype.jitterBufferEmittedCount;
-
 /**
  * Experimental chrome stats under this origin trial:
  * https://groups.google.com/a/chromium.org/forum/#!topic/blink-dev/hE2B1iItPDk
@@ -1958,13 +2357,16 @@ RTCInboundRtpStreamStats.prototype.jitterBufferEmittedCount;
 RTCInboundRtpStreamStats.prototype.jitterBufferFlushes;
 
 /** @const {number|undefined} */
+RTCInboundRtpStreamStats.prototype.jitterBufferTargetDelay;
+
+/** @const {number|undefined} */
+RTCInboundRtpStreamStats.prototype.jitterBufferEmittedCount;
+
+/** @const {number|undefined} */
+RTCInboundRtpStreamStats.prototype.jitterBufferMinimumDelay;
+
+/** @const {number|undefined} */
 RTCInboundRtpStreamStats.prototype.totalSamplesReceived;
-
-/** @const {number|undefined} */
-RTCInboundRtpStreamStats.prototype.samplesDecodedWithSilk;
-
-/** @const {number|undefined} */
-RTCInboundRtpStreamStats.prototype.samplesDecodedWithCelt;
 
 /** @const {number|undefined} */
 RTCInboundRtpStreamStats.prototype.concealedSamples;
@@ -2036,6 +2438,12 @@ RTCRemoteInboundRtpStreamStats.prototype.localId;
 /** @const {number} */
 RTCRemoteInboundRtpStreamStats.prototype.roundTripTime;
 
+/** @const {number|undefined} */
+RTCRemoteInboundRtpStreamStats.prototype.totalRoundTripTime;
+
+/** @const {number|undefined} */
+RTCRemoteInboundRtpStreamStats.prototype.roundTripMeasurements;
+
 /** @const {number} */
 RTCRemoteInboundRtpStreamStats.prototype.fractionLost;
 
@@ -2054,13 +2462,7 @@ RTCSentRtpStreamStats.prototype.packetsSent;
 RTCSentRtpStreamStats.prototype.packetsDiscardedOnSend;
 
 /** @const {number} */
-RTCSentRtpStreamStats.prototype.fecPacketsSent;
-
-/** @const {number} */
 RTCSentRtpStreamStats.prototype.bytesSent;
-
-/** @const {number} */
-RTCSentRtpStreamStats.prototype.bytesDiscardedOnSend;
 
 
 /**
@@ -2074,35 +2476,32 @@ function RTCOutboundRtpStreamStats() {}
 /** @const {string} */
 RTCOutboundRtpStreamStats.prototype.trackId;
 
+/** @const {string|undefined} */
+RTCOutboundRtpStreamStats.prototype.mid;
+
 /** @const {string} */
-RTCOutboundRtpStreamStats.prototype.senderId;
+RTCOutboundRtpStreamStats.prototype.mediaSourceId;
 
 /** @const {string} */
 RTCOutboundRtpStreamStats.prototype.remoteId;
 
-/** @const {number} */
-RTCOutboundRtpStreamStats.prototype.lastPacketSentTimestamp;
+/** @const {string|undefined} */
+RTCOutboundRtpStreamStats.prototype.rid;
+
+/** @const {number|undefined} */
+RTCOutboundRtpStreamStats.prototype.headerBytesSent;
+
+/** @const {number|undefined} */
+RTCOutboundRtpStreamStats.prototype.retransmittedPacketsSent;
+
+/** @const {number|undefined} */
+RTCOutboundRtpStreamStats.prototype.retransmittedBytesSent;
 
 /** @const {number} */
 RTCOutboundRtpStreamStats.prototype.targetBitrate;
 
-/** @const {number} */
-RTCOutboundRtpStreamStats.prototype.framesEncoded;
-
-/** @const {number} */
-RTCOutboundRtpStreamStats.prototype.totalEncodeTime;
-
-/** @const {number} */
-RTCOutboundRtpStreamStats.prototype.averageRTCPInterval;
-
 /** @const {number|undefined} */
-RTCOutboundRtpStreamStats.prototype.qualityLimitationResolutionChanges;
-
-/** @const {string|undefined} */
-RTCOutboundRtpStreamStats.prototype.qualityLimitationReason;
-
-/** @const {string} */
-RTCOutboundRtpStreamStats.prototype.mediaSourceId;
+RTCOutboundRtpStreamStats.prototype.totalEncodedBytesTarget;
 
 /** @const {number} */
 RTCOutboundRtpStreamStats.prototype.frameWidth;
@@ -2110,14 +2509,50 @@ RTCOutboundRtpStreamStats.prototype.frameWidth;
 /** @const {number} */
 RTCOutboundRtpStreamStats.prototype.frameHeight;
 
+/** @const {number|undefined} */
+RTCOutboundRtpStreamStats.prototype.framesPerSecond;
+
+/** @const {number|undefined} */
+RTCOutboundRtpStreamStats.prototype.framesSent;
+
+/** @const {number|undefined} */
+RTCOutboundRtpStreamStats.prototype.hugeFramesSent;
+
+/** @const {number} */
+RTCOutboundRtpStreamStats.prototype.framesEncoded;
+
+/** @const {number|undefined} */
+RTCOutboundRtpStreamStats.prototype.keyFramesEncoded;
+
 /** @const {number} */
 RTCOutboundRtpStreamStats.prototype.qpSum;
+
+/**
+ * https://w3c.github.io/webrtc-provisional-stats/#dom-rtcoutboundrtpstreamstats-contenttype
+ * @const {string|undefined}
+ */
+RTCOutboundRtpStreamStats.prototype.contentType;
 
 /**
  * Firefox specific value.
  * @const {number|undefined}
  */
 RTCOutboundRtpStreamStats.prototype.bitrateMean;
+
+/** @const {number} */
+RTCOutboundRtpStreamStats.prototype.totalEncodeTime;
+
+/** @const {number|undefined} */
+RTCOutboundRtpStreamStats.prototype.totalPacketSendDelay;
+
+/** @const {string|undefined} */
+RTCOutboundRtpStreamStats.prototype.qualityLimitationReason;
+
+/** @const {Object|undefined} */
+RTCOutboundRtpStreamStats.prototype.qualityLimitationDurations;
+
+/** @const {number|undefined} */
+RTCOutboundRtpStreamStats.prototype.qualityLimitationResolutionChanges;
 
 /** @const {number} */
 RTCOutboundRtpStreamStats.prototype.nackCount;
@@ -2128,12 +2563,11 @@ RTCOutboundRtpStreamStats.prototype.firCount;
 /** @const {number} */
 RTCOutboundRtpStreamStats.prototype.pliCount;
 
-/** @const {number} */
-RTCOutboundRtpStreamStats.prototype.sliCount;
-
 /** @const {string|undefined} */
 RTCOutboundRtpStreamStats.prototype.encoderImplementation;
 
+/** @const {boolean|undefined} */
+RTCOutboundRtpStreamStats.prototype.active;
 
 /**
  * @see https://www.w3.org/TR/webrtc-stats/#dom-rtcremoteoutboundrtpstreamstats
@@ -2148,9 +2582,36 @@ RTCRemoteOutboundRtpStreamStats.prototype.localId;
 /** @const {?Date|number} */
 RTCRemoteOutboundRtpStreamStats.prototype.remoteTimestamp;
 
+/** @const {number|undefined} */
+RTCRemoteOutboundRtpStreamStats.prototype.reportsSent;
+
+/** @const {number|undefined} */
+RTCRemoteOutboundRtpStreamStats.prototype.roundTripTime;
+
+/** @const {number|undefined} */
+RTCRemoteOutboundRtpStreamStats.prototype.totalRoundTripTime;
+
+/** @const {number|undefined} */
+RTCRemoteOutboundRtpStreamStats.prototype.roundTripTimeMeasurements;
+
+
 
 /**
- * @see https://www.w3.org/TR/webrtc-stats/#transportstats-dict*
+ * @see https://www.w3.org/TR/webrtc-stats/#dom-rtcpeerconnectionstats
+ * @interface
+ * @extends {RTCStats}
+ */
+function RTCPeerConnectionStats() {}
+
+/** @type {number} */
+RTCPeerConnectionStats.prototype.dataChannelsOpened;
+
+/** @type {number} */
+RTCPeerConnectionStats.prototype.dataChannelsClosed;
+
+
+/**
+ * @see https://www.w3.org/TR/webrtc-stats/#dom-rtctransportstats
  * @interface
  * @extends {RTCStats}
  */
@@ -2177,12 +2638,17 @@ RTCTransportStats.prototype.rtcpTransportStatsId;
  */
 RTCTransportStats.prototype.iceRole;
 
+/** @type {string|undefined} */
+RTCTransportStats.prototype.iceLocalUsernameFragment;
 /**
  * @type {string}
  * Set of possible string values: 'new', 'connecting', 'connected',
  * 'closed', 'failed'.
  */
 RTCTransportStats.prototype.dtlsState;
+
+/** @type {string|undefined} */
+RTCTransportStats.prototype.iceState;
 
 /** @type {string} */
 RTCTransportStats.prototype.selectedCandidatePairId;
@@ -2199,11 +2665,11 @@ RTCTransportStats.prototype.tlsVersion;
 /** @type {string} */
 RTCTransportStats.prototype.dtlsCipher;
 
-/** @type {string} */
-RTCTransportStats.prototype.srtpCipher;
+/** @type {string|undefined} */
+RTCTransportStats.prototype.dtlsRole;
 
 /** @type {string} */
-RTCTransportStats.prototype.tlsGroup;
+RTCTransportStats.prototype.srtpCipher;
 
 /** @type {number} */
 RTCTransportStats.prototype.selectedCandidatePairChanges;
@@ -2236,9 +2702,6 @@ RTCVideoSourceStats.prototype.width;
 RTCVideoSourceStats.prototype.height;
 
 /** @const {number} */
-RTCVideoSourceStats.prototype.bitDepth;
-
-/** @const {number} */
 RTCVideoSourceStats.prototype.frames;
 
 /** @const {number} */
@@ -2265,6 +2728,132 @@ RTCAudioSourceStats.prototype.echoReturnLoss;
 
 /** @const {number} */
 RTCAudioSourceStats.prototype.echoReturnLossEnhancement;
+
+
+/**
+ * @see https://www.w3.org/TR/webrtc-stats/#dom-rtcicecandidatestats
+ * @interface
+ * @extends {RTCStats}
+ */
+function RTCIceCandidateStats() {}
+
+/** @const {string} */
+RTCIceCandidateStats.prototype.transportId;
+
+/** @const {string|undefined} */
+RTCIceCandidateStats.prototype.networkType;
+
+/** @const {string|undefined} */
+RTCIceCandidateStats.prototype.address;
+
+/** @const {number|undefined} */
+RTCIceCandidateStats.prototype.port;
+
+/** @const {string|undefined} */
+RTCIceCandidateStats.prototype.protocol;
+
+/** @const {string} */
+RTCIceCandidateStats.prototype.candidateType;
+
+/** @const {number|undefined} */
+RTCIceCandidateStats.prototype.priority;
+
+/** @const {string|undefined} */
+RTCIceCandidateStats.prototype.url;
+
+/** @const {string|undefined} */
+RTCIceCandidateStats.prototype.relayProtocol;
+
+/**
+ * @see https://www.w3.org/TR/webrtc-stats/#dom-rtcicecandidatepairstats
+ * @interface
+ * @extends {RTCStats}
+ */
+function RTCIceCandidatePairStats() {}
+
+/** @const {string} */
+RTCIceCandidatePairStats.prototype.transportId;
+
+/** @const {string} */
+RTCIceCandidatePairStats.prototype.localCandidateId;
+
+/** @const {string} */
+RTCIceCandidatePairStats.prototype.remoteCandidateId;
+
+/** @const {string} */
+RTCIceCandidatePairStats.prototype.state;
+
+/** @const {boolean|undefined} */
+RTCIceCandidatePairStats.prototype.nominated;
+
+/** @const {number|undefined} */
+RTCIceCandidatePairStats.prototype.packetsSent;
+
+/** @const {number|undefined} */
+RTCIceCandidatePairStats.prototype.packetsReceived;
+
+/** @const {number|undefined} */
+RTCIceCandidatePairStats.prototype.bytesSent;
+
+/** @const {number|undefined} */
+RTCIceCandidatePairStats.prototype.bytesReceived;
+
+/** @const {number|undefined} */
+RTCIceCandidatePairStats.prototype.lastPacketReceivedTimestamp;
+
+/** @const {number|undefined} */
+RTCIceCandidatePairStats.prototype.totalRoundTripTime;
+
+/** @const {number|undefined} */
+RTCIceCandidatePairStats.prototype.currentRoundTripTime;
+
+/** @const {number|undefined} */
+RTCIceCandidatePairStats.prototype.availableOutgoingBitrate;
+
+/** @const {number|undefined} */
+RTCIceCandidatePairStats.prototype.availableIncomingBitrate;
+
+/** @const {number|undefined} */
+RTCIceCandidatePairStats.prototype.requestsReceived;
+
+/** @const {number|undefined} */
+RTCIceCandidatePairStats.prototype.requestsSent;
+
+/** @const {number|undefined} */
+RTCIceCandidatePairStats.prototype.responsesReceived;
+
+/** @const {number|undefined} */
+RTCIceCandidatePairStats.prototype.responsesSent;
+
+/** @const {number|undefined} */
+RTCIceCandidatePairStats.prototype.consentRequestsSent;
+
+/** @const {number|undefined} */
+RTCIceCandidatePairStats.prototype.packetsDiscardedOnSend;
+
+/** @const {number|undefined} */
+RTCIceCandidatePairStats.prototype.bytesDiscardedOnSend;
+
+
+/**
+ * @see https://www.w3.org/TR/webrtc-stats/#dom-rtccertificatestats
+ * @interface
+ * @extends {RTCStats}
+ */
+function RTCCertificateStats() {}
+
+/** @const {string} */
+RTCCertificateStats.prototype.fingerprint;
+
+/** @const {string} */
+RTCCertificateStats.prototype.fingerprintAlgorithm;
+
+/** @const {string} */
+RTCCertificateStats.prototype.base64Certificate;
+
+/** @const {string|undefined} */
+RTCCertificateStats.prototype.issuerCertificateId;
+
 
 
 /**
@@ -2465,7 +3054,39 @@ RTCDataChannel.prototype.label;
 /**
  * @const {boolean}
  */
+RTCDataChannel.prototype.ordered;
+
+/**
+ * @const {?number}
+ */
+RTCDataChannel.prototype.maxPacketLifeTime;
+
+/**
+ * @const {?number}
+ */
+RTCDataChannel.prototype.maxRetransmits;
+
+/**
+ * Note, this was removed from the standard in favor of `maxPacketLifeTime` and
+ * `maxRetransmits`.
+ * @const {boolean}
+ */
 RTCDataChannel.prototype.reliable;
+
+/**
+ * @const {string}
+ */
+RTCDataChannel.prototype.protocol;
+
+/**
+ * @const {boolean}
+ */
+RTCDataChannel.prototype.negotiated;
+
+/**
+ * @const {?number}
+ */
+RTCDataChannel.prototype.id;
 
 /**
  * An enumerated string type (RTCDataChannelState) with values:
@@ -2476,8 +3097,7 @@ RTCDataChannel.prototype.reliable;
 RTCDataChannel.prototype.readyState;
 
 /**
- * @type {number}
- * Read only.
+ * @const {number}
  */
 RTCDataChannel.prototype.bufferedAmount;
 
@@ -2492,9 +3112,14 @@ RTCDataChannel.prototype.bufferedAmountLowThreshold;
 RTCDataChannel.prototype.onopen;
 
 /**
- * @type {?function(!Event)}
+ * @type {?function(!RTCErrorEvent)}
  */
 RTCDataChannel.prototype.onerror;
+
+/**
+ * @type {?function(!Event)}
+ */
+RTCDataChannel.prototype.onclosing;
 
 /**
  * @type {?function(!Event)}
@@ -2586,6 +3211,22 @@ var RTCDataChannelInit;
 var RTCCertificate;
 
 /**
+ * @record
+ * @see https://www.w3.org/TR/webrtc/#dom-rtcofferoptions
+ * @see https://www.w3.org/TR/webrtc/#legacy-configuration-extensions
+ */
+function RTCOfferOptions() {}
+
+/** @type {boolean|undefined} */
+RTCOfferOptions.prototype.iceRestart;
+
+/** @type {boolean|undefined} */
+RTCOfferOptions.prototype.offerToReceiveAudio;
+
+/** @type {boolean|undefined} */
+RTCOfferOptions.prototype.offerToReceiveVideo;
+
+/**
  * @param {RTCConfiguration} configuration
  * @param {!MediaConstraints=} constraints
  * @constructor
@@ -2598,7 +3239,7 @@ function RTCPeerConnection(configuration, constraints) {}
  * @param {Object} keygenAlgorithm
  * @return {Promise<RTCCertificate>}
  */
-RTCPeerConnection.generateCertificate = function (keygenAlgorithm) {};
+RTCPeerConnection.generateCertificate = function(keygenAlgorithm) {};
 
 /**
  * @override
@@ -2626,14 +3267,14 @@ RTCPeerConnection.prototype.dispatchEvent = function(evt) {};
 // forward, and vice versa.
 
 /**
- * @param {(!RTCSessionDescriptionCallback|!MediaConstraints)=}
- *    successCallbackOrConstraints
+ * @param {(!RTCSessionDescriptionCallback|!MediaConstraints|!RTCOfferOptions)=}
+ *    successCallbackOrConstraintsOrOfferOptions
  * @param {!RTCPeerConnectionErrorCallback=} errorCallback
  * @param {!MediaConstraints=} constraints
  * @return {!Promise<!RTCSessionDescription>}
  */
-RTCPeerConnection.prototype.createOffer = function(successCallbackOrConstraints,
-    errorCallback, constraints) {};
+RTCPeerConnection.prototype.createOffer = function(
+    successCallbackOrConstraintsOrOfferOptions, errorCallback, constraints) {};
 
 /**
  * @param {(!RTCSessionDescriptionCallback|!MediaConstraints)=}
@@ -2642,8 +3283,8 @@ RTCPeerConnection.prototype.createOffer = function(successCallbackOrConstraints,
  * @param {!MediaConstraints=} constraints
  * @return {!Promise<!RTCSessionDescription>|undefined}
  */
-RTCPeerConnection.prototype.createAnswer =
-    function(successCallbackOrConstraints, errorCallback, constraints) {};
+RTCPeerConnection.prototype.createAnswer = function(
+    successCallbackOrConstraints, errorCallback, constraints) {};
 
 /**
  * @param {!RTCSessionDescription=} description
@@ -2651,8 +3292,8 @@ RTCPeerConnection.prototype.createAnswer =
  * @param {!RTCPeerConnectionErrorCallback=} errorCallback
  * @return {!Promise<!RTCSessionDescription>}
  */
-RTCPeerConnection.prototype.setLocalDescription = function(description,
-    successCallback, errorCallback) {};
+RTCPeerConnection.prototype.setLocalDescription = function(
+    description, successCallback, errorCallback) {};
 
 /**
  * @param {!RTCSessionDescription} description
@@ -2660,8 +3301,8 @@ RTCPeerConnection.prototype.setLocalDescription = function(description,
  * @param {!RTCPeerConnectionErrorCallback=} errorCallback
  * @return {!Promise<!RTCSessionDescription>}
  */
-RTCPeerConnection.prototype.setRemoteDescription = function(description,
-    successCallback, errorCallback) {};
+RTCPeerConnection.prototype.setRemoteDescription = function(
+    description, successCallback, errorCallback) {};
 
 /**
  * @type {?RTCSessionDescription}
@@ -2670,10 +3311,30 @@ RTCPeerConnection.prototype.setRemoteDescription = function(description,
 RTCPeerConnection.prototype.localDescription;
 
 /**
+ * @const {?RTCSessionDescription}
+ */
+RTCPeerConnection.prototype.currentLocalDescription;
+
+/**
+ * @const {?RTCSessionDescription}
+ */
+RTCPeerConnection.prototype.pendingLocalDescription;
+
+/**
  * @type {?RTCSessionDescription}
  * Read only.
  */
 RTCPeerConnection.prototype.remoteDescription;
+
+/**
+ * @const {?RTCSessionDescription}
+ */
+RTCPeerConnection.prototype.currentRemoteDescription;
+
+/**
+ * @const {?RTCSessionDescription}
+ */
+RTCPeerConnection.prototype.pendingRemoteDescription;
 
 /**
  * @type {RTCSignalingState}
@@ -2695,7 +3356,8 @@ RTCPeerConnection.prototype.updateIce = function(configuration, constraints) {};
  * @param {function(DOMException)=} errorCallback
  * @return {!Promise|undefined}
  */
-RTCPeerConnection.prototype.addIceCandidate = function(candidate, successCallback, errorCallback) {};
+RTCPeerConnection.prototype.addIceCandidate = function(
+    candidate, successCallback, errorCallback) {};
 
 /**
  * @type {!RTCIceGatheringState}
@@ -2714,6 +3376,16 @@ RTCPeerConnection.prototype.iceConnectionState;
  * Read only.
  */
 RTCPeerConnection.prototype.connectionState;
+
+/**
+ * @const {boolean|undefined}
+ */
+RTCPeerConnection.prototype.canTrickleIceCandidates;
+
+/**
+ * @return {undefined}
+ */
+RTCPeerConnection.prototype.restartIce = function() {};
 
 /**
  * @return {!Array<!MediaStream>}
@@ -2742,12 +3414,17 @@ RTCPeerConnection.prototype.getSenders = function() {};
 RTCPeerConnection.prototype.getReceivers = function() {};
 
 /**
+ * @const {?RTCSctpTransport}
+ */
+RTCPeerConnection.prototype.sctp;
+
+/**
  * @param {?string} label
  * @param {RTCDataChannelInit=} dataChannelDict
  * @return {!RTCDataChannel}
  */
-RTCPeerConnection.prototype.createDataChannel =
-    function(label, dataChannelDict) {};
+RTCPeerConnection.prototype.createDataChannel = function(
+    label, dataChannelDict) {};
 /**
  * @param {!MediaStream} stream
  * @param {!MediaConstraints=} constraints
@@ -2826,6 +3503,11 @@ RTCPeerConnection.prototype.onnegotiationneeded;
 RTCPeerConnection.prototype.onicecandidate;
 
 /**
+ * @type {?function(!RTCPeerConnectionIceErrorEvent)}
+ */
+RTCPeerConnection.prototype.onicecandidateerror;
+
+/**
  * @type {?function(!Event)}
  */
 RTCPeerConnection.prototype.onicegatheringstatechange;
@@ -2900,7 +3582,8 @@ RTCError.prototype.sentAlert;
 
 /**
  * @see https://www.w3.org/TR/webrtc/#rtcerrorevent-interface
- * @interface
+ * @constructor
+ * @extends {Event}
  */
 function RTCErrorEvent() {}
 

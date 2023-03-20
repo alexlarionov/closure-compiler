@@ -29,9 +29,7 @@ import com.google.javascript.jscomp.AbstractCompiler.LifeCycleStage;
 import com.google.javascript.jscomp.FunctionInjector.CanInlineResult;
 import com.google.javascript.jscomp.FunctionInjector.InliningMode;
 import com.google.javascript.jscomp.FunctionInjector.Reference;
-import com.google.javascript.jscomp.NodeTraversal.Callback;
 import com.google.javascript.rhino.Node;
-import java.util.List;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
@@ -47,7 +45,7 @@ public final class FunctionInjectorTest {
   static final InliningMode INLINE_DIRECT = InliningMode.DIRECT;
   static final InliningMode INLINE_BLOCK = InliningMode.BLOCK;
   private boolean assumeStrictThis = false;
-  private final boolean assumeMinimumCapture = false;
+  private static final boolean ASSUME_MINIMUM_CAPTURE = false;
   private boolean allowDecomposition;
 
   @Before
@@ -1856,7 +1854,7 @@ public final class FunctionInjectorTest {
         new FunctionInjector.Builder(compiler)
             .allowDecomposition(allowDecomposition)
             .assumeStrictThis(assumeStrictThis)
-            .assumeMinimumCapture(assumeMinimumCapture)
+            .assumeMinimumCapture(ASSUME_MINIMUM_CAPTURE)
             .functionArgumentInjector(functionArgumentInjector)
             .build();
     final Node tree = parse(compiler, code);
@@ -1905,8 +1903,7 @@ public final class FunctionInjectorTest {
       String code, final String expectedResult,
       final String fnName, final InliningMode mode) {
     final Compiler compiler = new Compiler();
-    List<SourceFile> externsInputs = ImmutableList.of(
-        SourceFile.fromCode("externs", ""));
+    ImmutableList<SourceFile> externsInputs = ImmutableList.of(SourceFile.fromCode("externs", ""));
 
     CompilerOptions options = new CompilerOptions();
     options.setCodingConvention(new GoogleCodingConvention());
@@ -1919,7 +1916,7 @@ public final class FunctionInjectorTest {
         new FunctionInjector.Builder(compiler)
             .allowDecomposition(allowDecomposition)
             .assumeStrictThis(assumeStrictThis)
-            .assumeMinimumCapture(assumeMinimumCapture)
+            .assumeMinimumCapture(ASSUME_MINIMUM_CAPTURE)
             .functionArgumentInjector(functionArgumentInjector)
             .build();
 
@@ -2007,7 +2004,7 @@ public final class FunctionInjectorTest {
         new FunctionInjector.Builder(compiler)
             .allowDecomposition(allowDecomposition)
             .assumeStrictThis(assumeStrictThis)
-            .assumeMinimumCapture(assumeMinimumCapture)
+            .assumeMinimumCapture(ASSUME_MINIMUM_CAPTURE)
             .build();
     final Node tree = parse(compiler, code);
 
@@ -2019,7 +2016,7 @@ public final class FunctionInjectorTest {
     boolean call(NodeTraversal t, Node n, Node parent);
   }
 
-  static class TestCallback implements Callback {
+  static class TestCallback implements NodeTraversal.Callback {
 
     private final String callname;
     private final Method method;
@@ -2099,11 +2096,7 @@ public final class FunctionInjectorTest {
   }
 
   private static String toSource(Node n) {
-    return new CodePrinter.Builder(n)
-        .setPrettyPrint(false)
-        .setLineBreak(false)
-        .setSourceMap(null)
-        .build();
+    return new CodePrinter.Builder(n).setPrettyPrint(false).setLineBreak(false).build();
   }
 
 }

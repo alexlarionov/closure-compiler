@@ -20,6 +20,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static java.util.stream.Collectors.joining;
 
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.javascript.jscomp.testing.JSChunkGraphBuilder;
 import com.google.javascript.jscomp.testing.TestExternsBuilder;
 import com.google.javascript.rhino.Node;
@@ -28,6 +29,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.stream.Collector;
 import java.util.stream.Stream;
+import org.jspecify.nullness.Nullable;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -55,8 +57,9 @@ public final class RemoveUnusedCodeTest extends CompilerTestCase {
             "/** @const {!Global} */ goog.global;",
             "goog.reflect = {};",
             "goog.reflect.object = function(obj, propertiesObj) {};",
+            "goog.reflect.objectProperty = function(prop, obj) {};",
             "function goog$inherits(subClass, superClass) {}",
-            "function goog$mixin(dstPrototype, srcPrototype) {}",
+            "function valueType$mixin(dstPrototype, srcPrototype, flags, ...args) {}",
             "function alert() {}",
             "function use() {}",
             "function externFunction() {}",
@@ -1267,34 +1270,6 @@ public final class RemoveUnusedCodeTest extends CompilerTestCase {
   }
 
   @Test
-  public void testRemoveInheritedClass6() {
-    test(
-        lines(
-            "/** @constructor*/ function a(){}",
-            "/** @constructor*/ function b(){}",
-            "/** @constructor*/ function c(){}",
-            "/** @constructor*/ function d(){}",
-            "goog$mixin(b.prototype,a.prototype);",
-            "goog$mixin(c.prototype,a.prototype); new c;",
-            "goog$mixin(d.prototype,a.prototype)"),
-        lines(
-            "/** @constructor*/ function a(){}",
-            "/** @constructor*/ function c(){}",
-            "goog$mixin(c.prototype,a.prototype); new c"));
-  }
-
-  @Test
-  public void testRemoveInheritedClass7() {
-    test(
-        lines(
-            "/**@constructor*/function a(){alert(goog$mixin(a, a))}",
-            "/**@constructor*/function b(){}",
-            "goog$mixin(b.prototype,a.prototype); new a"),
-        lines(
-            "/**@constructor*/function a(){alert(goog$mixin(a, a))} new a"));
-  }
-
-  @Test
   public void testRemoveInheritedClass8() {
     testSame("/**@constructor*/function a(){}" +
         "/**@constructor*/function b(){}" +
@@ -1317,16 +1292,6 @@ public final class RemoveUnusedCodeTest extends CompilerTestCase {
             "/**@constructor*/ function b(){}",
             "goog$inherits(b,a); ",
             "new a; new b"));
-  }
-
-  @Test
-  public void testRemoveInheritedClass10() {
-    testSame(
-        lines(
-            "/**@constructor*/function a(){}",
-            "/**@constructor*/function b(){}",
-            "goog$mixin(b.prototype,a.prototype);",
-            "new b"));
   }
 
   @Test
@@ -1359,6 +1324,16 @@ public final class RemoveUnusedCodeTest extends CompilerTestCase {
             "function b(){}",
             "(goog$inherits(b, a), 1);"),
         "1");
+  }
+
+  @Test
+  public void testRemoveInheritedClass13() {
+    test(
+        lines(
+            "class D {}", //
+            "class C {}",
+            "valueType$mixin(C, D, 1, goog.reflect.objectProperty('a', C))"),
+        "");
   }
 
   @Test
@@ -1642,6 +1617,136 @@ public final class RemoveUnusedCodeTest extends CompilerTestCase {
             "  static 'a' = 'foo';",
             "}"),
         "");
+  }
+
+  @Test
+  public void testClassStaticBlocksDoesRemove() {
+    test(
+        lines(
+            "class C {", //
+            "  static {",
+            "  }",
+            "}"),
+        "");
+
+    // TODO(bradfordcsmith): Would be nice to remove the whole class at this point
+    test(
+        lines(
+            "class C {", //
+            "  static {",
+            "    var x = 1;",
+            "    let y = 2;",
+            "    const z = 3;",
+            "  }",
+            "}"),
+        lines(
+            "class C {", //
+            "  static {",
+            "  }",
+            "}"));
+
+    test(
+        lines(
+            "class C {", //
+            "  static {",
+            "    if (true) {",
+            "      if (true) {",
+            "        var foo = function() {};",
+            "      }",
+            "    }",
+            "  }",
+            "}"),
+        lines(
+            "class C {",
+            "  static {",
+            "    if (true) {",
+            "      if (true) {",
+            "      }",
+            "    }",
+            "  }",
+            "}"));
+
+    test(
+        lines(
+            "class C {", //
+            "  static {",
+            "    function f() {}",
+            "  }",
+            "}"),
+        lines(
+            "class C {", //
+            "  static {",
+            "  }",
+            "}"));
+
+    test(
+        lines(
+            "const x = 1;", //
+            "class C {",
+            "  static {",
+            "    function f() {",
+            "      x;",
+            "    }",
+            "  }",
+            "}"),
+        lines(
+            "class C {", //
+            "  static {",
+            "  }",
+            "}"));
+  }
+
+  @Test
+  public void testClassStaticBlockDoesntRemove() {
+    testSame(
+        lines(
+            "class C {", //
+            "  static {",
+            "    let x;",
+            "    alert(x);",
+            "    console.log(x);",
+            "  }",
+            "}"));
+
+    testSame(
+        lines(
+            "class C {", //
+            "  static {",
+            "    this.x=1;",
+            "  }",
+            "}"));
+
+    testSame(
+        lines(
+            "const x = 1;",
+            "class C {",
+            "  static {",
+            "    x;", // reference prevents `const x = 1;` from being removed.
+            "  }",
+            "}",
+            "new C;"));
+
+    testSame(
+        lines(
+            "const x = 1;",
+            "class C {",
+            "  static {",
+            // side-effect of `alert` prevents `x` from being removed
+            "    alert(x);", // reference prevents `x` from being removed.
+            "  }",
+            "}"));
+
+    testSame(
+        lines(
+            "const x = 1;",
+            "class C {",
+            "  static {",
+            "    function f() {",
+            "      x;", // reference prevents `const x = 1;` from being removed.
+            "    }",
+            "    f();", // call prevents f() from being removed.
+            "  }",
+            "}"));
   }
 
   @Test
@@ -2110,23 +2215,25 @@ public final class RemoveUnusedCodeTest extends CompilerTestCase {
 
     // Input source code, which will be prefixed with the polyfills.
     // A value of `null` just means this hasn't been set yet.
-    private String inputSource = null;
+    private @Nullable String inputSource = null;
 
     // Expected output source code, which will be prefixed with the output version of each polyfill.
     // A value of `null` means this value hasn't been set yet or needs to be reset because
     // inputSource has changed.
-    private String expectedSource = null;
+    private @Nullable String expectedSource = null;
 
     // Set of polyfills that are expected to be removed by RemoveUnusedCode.
     // A value of `null` indicates that no expectation has been set since the last time inputSource
     // was modified.
-    private HashSet<String> polyfillsExpectedToBeRemoved = new HashSet<>();
+    private @Nullable HashSet<String> polyfillsExpectedToBeRemoved = new HashSet<>();
 
+    @CanIgnoreReturnValue
     PolyfillRemovalTester addExterns(String moreExterns) {
       externs.add(moreExterns);
       return this;
     }
 
+    @CanIgnoreReturnValue
     PolyfillRemovalTester addPolyfill(String polyfill) {
       checkArgument(!polyfills.contains(polyfill), "duplicate polyfill added: >%s<", polyfill);
       polyfills.add(polyfill);
@@ -2135,6 +2242,7 @@ public final class RemoveUnusedCodeTest extends CompilerTestCase {
       return this;
     }
 
+    @CanIgnoreReturnValue
     PolyfillRemovalTester inputSourceLines(String... srcLines) {
       inputSource = lines(srcLines);
       // Force updates for the expected output source and polyfills
@@ -2143,22 +2251,26 @@ public final class RemoveUnusedCodeTest extends CompilerTestCase {
       return this;
     }
 
+    @CanIgnoreReturnValue
     PolyfillRemovalTester expectSourceUnchanged() {
       checkNotNull(inputSource);
       expectedSource = inputSource;
       return this;
     }
 
+    @CanIgnoreReturnValue
     PolyfillRemovalTester expectSourceLines(String... expectedLines) {
       expectedSource = lines(expectedLines);
       return this;
     }
 
+    @CanIgnoreReturnValue
     PolyfillRemovalTester expectNoPolyfillsRemoved() {
       polyfillsExpectedToBeRemoved = new HashSet<>();
       return this;
     }
 
+    @CanIgnoreReturnValue
     PolyfillRemovalTester expectPolyfillsRemoved(String... removedPolyfills) {
       for (String polyfillToRemove : removedPolyfills) {
         expectPolyfillRemoved(polyfillToRemove);
@@ -2166,6 +2278,7 @@ public final class RemoveUnusedCodeTest extends CompilerTestCase {
       return this;
     }
 
+    @CanIgnoreReturnValue
     PolyfillRemovalTester expectPolyfillRemoved(String polyfill) {
       checkArgument(
           polyfills.contains(polyfill), "non-existent polyfill cannot be removed: >%s<", polyfill);
@@ -3216,5 +3329,59 @@ public final class RemoveUnusedCodeTest extends CompilerTestCase {
             "}; ",
             "alert(a);"),
         lines("function a() {", "}; ", "alert(a);"));
+  }
+
+  @Test
+  public void testRemovalFromRHSOfAND() {
+    test(
+        lines(
+            "function a() {",
+            "    var a = {};",
+            "    var CONDITION = true;",
+            "    CONDITION && Object.defineProperties(a, b);",
+            "}; ",
+            "alert(a);"),
+        lines(
+            "function a() {", //
+            "  var CONDITION = true;",
+            "  CONDITION;",
+            "};",
+            "alert(a);"));
+  }
+
+  @Test
+  public void testRemovalFromRHSOfOR() {
+    test(
+        lines(
+            "function a() {",
+            "    var a = {};",
+            "    var CONDITION = true;",
+            "    CONDITION || Object.defineProperties(a, b);",
+            "}; ",
+            "alert(a);"),
+        lines(
+            "function a() {", //
+            "  var CONDITION = true;",
+            "  CONDITION;",
+            "};",
+            "alert(a);"));
+  }
+
+  @Test
+  public void testRemovalFromExpression() {
+    test(
+        lines(
+            "function a() {",
+            "    var a = {};",
+            "    var CONDITION = true;",
+            "    CONDITION ? Object.defineProperties(a, b) : 'something';",
+            "}; ",
+            "alert(a);"),
+        lines(
+            "function a() {", //
+            "  var CONDITION = true;",
+            "  CONDITION ? 0 : 'something';",
+            "};",
+            "alert(a);"));
   }
 }

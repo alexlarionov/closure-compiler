@@ -25,6 +25,7 @@ import com.google.common.base.Predicates;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.jstype.JSType;
@@ -32,9 +33,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.Set;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  * A set of utility functions that replaces CALL with a specified FUNCTION body, replacing and
@@ -82,11 +82,11 @@ class FunctionInjector {
   static class Builder {
 
     private final AbstractCompiler compiler;
-    private Supplier<String> safeNameIdSupplier = null;
+    private @Nullable Supplier<String> safeNameIdSupplier = null;
     private boolean assumeStrictThis = true;
     private boolean assumeMinimumCapture = true;
     private boolean allowDecomposition = true;
-    private FunctionArgumentInjector functionArgumentInjector = null;
+    private @Nullable FunctionArgumentInjector functionArgumentInjector = null;
 
     Builder(AbstractCompiler compiler) {
       this.compiler = checkNotNull(compiler);
@@ -97,6 +97,7 @@ class FunctionInjector {
      *
      * <p>If this method is not called, {@code compiler.getUniqueNameIdSupplier()} will be used.
      */
+    @CanIgnoreReturnValue
     Builder safeNameIdSupplier(Supplier<String> safeNameIdSupplier) {
       this.safeNameIdSupplier = checkNotNull(safeNameIdSupplier);
       return this;
@@ -107,16 +108,19 @@ class FunctionInjector {
      *
      * <p>Default is {@code true}.
      */
+    @CanIgnoreReturnValue
     Builder allowDecomposition(boolean allowDecomposition) {
       this.allowDecomposition = allowDecomposition;
       return this;
     }
 
+    @CanIgnoreReturnValue
     Builder assumeStrictThis(boolean assumeStrictThis) {
       this.assumeStrictThis = assumeStrictThis;
       return this;
     }
 
+    @CanIgnoreReturnValue
     Builder assumeMinimumCapture(boolean assumeMinimumCapture) {
       this.assumeMinimumCapture = assumeMinimumCapture;
       return this;
@@ -127,6 +131,7 @@ class FunctionInjector {
      *
      * <p>Default is for the builder to create this. This method exists for testing purposes.
      */
+    @CanIgnoreReturnValue
     public Builder functionArgumentInjector(FunctionArgumentInjector functionArgumentInjector) {
       this.functionArgumentInjector = checkNotNull(functionArgumentInjector);
       return this;
@@ -202,16 +207,11 @@ class FunctionInjector {
     Node block = NodeUtil.getFunctionBody(fnNode);
 
     // Basic restrictions on functions that can be inlined:
-    // 0) The function is inlinable by convention
     // 1) It contains a reference to itself.
     // 2) It uses its parameters indirectly using "arguments" (it isn't
     //    handled yet.
     // 3) It references "eval". Inline a function containing eval can have
     //    large performance implications.
-
-    if (!compiler.getCodingConvention().isInlinableFunction(fnNode)) {
-      return false;
-    }
 
     final String fnRecursionName = fnNode.getFirstChild().getString();
     checkState(fnRecursionName != null);
@@ -366,7 +366,7 @@ class FunctionInjector {
     // no need to check for conflicts.
 
     // Create an argName -> expression map, checking for side effects.
-    Map<String, Node> argMap =
+    ImmutableMap<String, Node> argMap =
         functionArgumentInjector.getFunctionCallParameterMap(
             fnNode, callNode, this.safeNameIdSupplier);
 
@@ -993,8 +993,6 @@ class FunctionInjector {
   /**
    * Gets an estimate of the cost in characters of making the function call: the sum of the
    * identifiers and the separators.
-   *
-   * @param referencesThis
    */
   private static int estimateCallCost(Node fnNode, boolean referencesThis) {
     Node argsNode = NodeUtil.getFunctionParameters(fnNode);

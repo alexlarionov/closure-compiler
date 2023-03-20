@@ -44,7 +44,7 @@ import com.google.javascript.rhino.jstype.TemplateTypeReplacer;
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.Supplier;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  * Creates AST nodes and subtrees.
@@ -69,10 +69,10 @@ final class AstFactory {
 
   private static final Splitter DOT_SPLITTER = Splitter.on(".");
 
-  @Nullable private final ColorRegistry colorRegistry;
-  @Nullable private final JSTypeRegistry registry;
+  private final @Nullable ColorRegistry colorRegistry;
+  private final @Nullable JSTypeRegistry registry;
   // We need the unknown type so frequently, it's worth caching it.
-  private final JSType unknownType;
+  private final @Nullable JSType unknownType;
   private static final Supplier<Color> bigintNumberStringColor =
       Suppliers.memoize(
           () ->
@@ -213,6 +213,64 @@ final class AstFactory {
   }
 
   /**
+   * Returns a new LABEL node.
+   *
+   * <p>Breaks have no type information, so this is functionally the same as calling {@code
+   * IR.label()}. It exists so that a pass can be consistent about always using {@code AstFactory}
+   * to create new nodes.
+   */
+  Node createLabel(Node label, Node stmt) {
+    return IR.label(label, stmt);
+  }
+
+  /**
+   * Returns a new CATCH node.
+   *
+   * <p>CATCH have no type information, so this is functionally the same as calling {@code
+   * IR.catchNode()}. It exists so that a pass can be consistent about always using {@code
+   * AstFactory} to create new nodes.
+   */
+  Node createCatch(Node error, Node block) {
+    return IR.catchNode(error, block);
+  }
+
+  /**
+   * Returns a new TRY-FINALLY node.
+   *
+   * <p>TRY-FINALLY have no type information, so this is functionally the same as calling {@code
+   * IR.tryFinally()}. It exists so that a pass can be consistent about always using {@code
+   * AstFactory} to create new nodes.
+   */
+  Node createTryFinally(Node tryBlock, Node finallyBlock) {
+    return IR.tryFinally(tryBlock, finallyBlock);
+  }
+
+  /**
+   * Returns a new TRY-CATCH-FINALLY node.
+   *
+   * <p>TRY-CATCH-FINALLY have no type information, so this is functionally the same as calling
+   * {@code IR.tryCatchFinally()}. It exists so that a pass can be consistent about always using
+   * {@code AstFactory} to create new nodes.
+   */
+  Node createTryCatchFinally(Node tryBlock, Node catchNode, Node finallyBlock) {
+    checkState(tryBlock.isBlock());
+    checkState(catchNode.isCatch());
+    checkState(finallyBlock.isBlock());
+    return IR.tryCatchFinally(tryBlock, catchNode, finallyBlock);
+  }
+
+  /**
+   * Returns a new THROW node.
+   *
+   * <p>THROW have no type information, so this is functionally the same as calling {@code
+   * IR.throwNode()}. It exists so that a pass can be consistent about always using {@code
+   * AstFactory} to create new nodes.
+   */
+  Node createThrow(Node expr) {
+    return IR.throwNode(expr);
+  }
+
+  /**
    * Returns a new {@code return} statement.
    *
    * <p>Return statements have no type information, so this is functionally the same as calling
@@ -321,12 +379,14 @@ final class AstFactory {
    * <p>With the optimization colors type system, we can support inferring the type of this for
    * constructors but not generic functions annotated @this
    */
-  Node createThisForEs6ClassMember(Node functionNode) {
-    checkState(
-        functionNode.isMemberFunctionDef() && functionNode.getParent().isClassMembers(),
-        functionNode);
-    Node classNode = functionNode.getGrandparent();
-    if (functionNode.isStaticMember()) {
+  Node createThisForEs6ClassMember(Node memberNode) {
+    checkArgument(memberNode.getParent().isClassMembers());
+    checkArgument(
+        memberNode.isMemberFunctionDef()
+            || memberNode.isMemberFieldDef()
+            || memberNode.isComputedFieldDef());
+    Node classNode = memberNode.getGrandparent();
+    if (memberNode.isStaticMember()) {
       final Node result = IR.thisNode();
       setJSTypeOrColor(type(classNode), result);
       return result;
@@ -335,8 +395,7 @@ final class AstFactory {
     }
   }
 
-  @Nullable
-  private JSType getTypeOfThisForFunctionNode(Node functionNode) {
+  private @Nullable JSType getTypeOfThisForFunctionNode(Node functionNode) {
     assertNotAddingColors();
     if (isAddingTypes()) {
       FunctionType functionType = getFunctionType(functionNode);
@@ -346,8 +405,7 @@ final class AstFactory {
     }
   }
 
-  @Nullable
-  private Type getTypeOfThisForEs6Class(Node functionNode) {
+  private @Nullable Type getTypeOfThisForEs6Class(Node functionNode) {
     checkArgument(functionNode.isClass(), functionNode);
     switch (this.typeMode) {
       case JSTYPE:
@@ -442,6 +500,16 @@ final class AstFactory {
    */
   Node createSingleConstNameDeclaration(String variableName, Node value) {
     return IR.constNode(createName(variableName, type(value.getJSType(), value.getColor())), value);
+  }
+
+  /**
+   * Creates a new `const` declaration statement for an object pattern.
+   *
+   * <p>e.g. `const {Foo} = value;`
+   */
+  Node createSingleConstObjectPatternDeclaration(Node objectPattern, Node value) {
+    checkState(objectPattern.isObjectPattern(), "not an object pattern: %s", objectPattern);
+    return IR.constNode(objectPattern, value);
   }
 
   /**
@@ -641,7 +709,9 @@ final class AstFactory {
     return result;
   }
 
-  /** @deprecated Use {@link #createGetProp(Node, String, Type)} instead. */
+  /**
+   * @deprecated Use {@link #createGetProp(Node, String, Type)} instead.
+   */
   @Deprecated
   Node createGetPropWithoutColor(Node receiver, String propertyName) {
     assertNotAddingColors();
@@ -903,8 +973,8 @@ final class AstFactory {
       case JSTYPE:
         JSType classJSType = classType.getJSType(registry);
         FunctionType constructorType = checkNotNull(classJSType.toMaybeFunctionType());
-      ObjectType instanceType = checkNotNull(constructorType.getInstanceType());
-      result.setJSType(instanceType);
+        ObjectType instanceType = checkNotNull(constructorType.getInstanceType());
+        result.setJSType(instanceType);
         break;
       case COLOR:
         result.setColor(getInstanceOfColor(classType.getColor(colorRegistry)));
@@ -962,7 +1032,7 @@ final class AstFactory {
 
   public Node createQuotedStringKey(String key, Node value) {
     Node result = IR.stringKey(key, value);
-    result.setQuotedString();
+    result.setQuotedStringKey();
     return result;
   }
 
@@ -1026,16 +1096,16 @@ final class AstFactory {
     Node result = IR.arrowFunction(IR.name(""), IR.paramList(), expression);
     switch (this.typeMode) {
       case JSTYPE:
-      // It feels like we should be adding type-of-this here, but it should remain unknown,
-      // because you're allowed to supply any kind of value of `this` when calling an arrow
-      // function. It will just be ignored in favor of the `this` in the scope where the
-      // arrow was defined.
-      FunctionType functionType =
-          FunctionType.builder(registry)
-              .withReturnType(expression.getJSTypeRequired())
-              .withParameters()
-              .buildAndResolve();
-      result.setJSType(functionType);
+        // It feels like we should be adding type-of-this here, but it should remain unknown,
+        // because you're allowed to supply any kind of value of `this` when calling an arrow
+        // function. It will just be ignored in favor of the `this` in the scope where the
+        // arrow was defined.
+        FunctionType functionType =
+            FunctionType.builder(registry)
+                .withReturnType(expression.getJSTypeRequired())
+                .withParameters()
+                .buildAndResolve();
+        result.setJSType(functionType);
         break;
       case COLOR:
         result.setColor(StandardColors.TOP_OBJECT);
@@ -1097,11 +1167,11 @@ final class AstFactory {
     Node result = IR.arraylit(elements);
     switch (this.typeMode) {
       case JSTYPE:
-      result.setJSType(
-          registry.createTemplatizedType(
-              registry.getNativeObjectType(JSTypeNative.ARRAY_TYPE),
-              // TODO(nickreid): Use a reasonable template type. Remeber to consider SPREAD.
-              getNativeType(JSTypeNative.UNKNOWN_TYPE)));
+        result.setJSType(
+            registry.createTemplatizedType(
+                registry.getNativeObjectType(JSTypeNative.ARRAY_TYPE),
+                // TODO(nickreid): Use a reasonable template type. Remeber to consider SPREAD.
+                getNativeType(JSTypeNative.UNKNOWN_TYPE)));
         break;
       case COLOR:
         result.setColor(colorRegistry.get(StandardColors.ARRAY_ID));
@@ -1416,26 +1486,26 @@ final class AstFactory {
   }
 
   private static final class JSTypeOrColor implements Type {
-    private final JSType jstype;
-    private final JSTypeNative jstypeNative;
-    private final Color color;
-    private final ColorId colorId;
+    private final @Nullable JSType jstype;
+    private final @Nullable JSTypeNative jstypeNative;
+    private final @Nullable Color color;
+    private final @Nullable ColorId colorId;
 
-    JSTypeOrColor(JSTypeNative jstypeNative, ColorId colorId) {
+    JSTypeOrColor(@Nullable JSTypeNative jstypeNative, ColorId colorId) {
       this.jstypeNative = jstypeNative;
       this.jstype = null;
       this.color = null;
       this.colorId = colorId;
     }
 
-    JSTypeOrColor(JSTypeNative jstypeNative, Color color) {
+    JSTypeOrColor(JSTypeNative jstypeNative, @Nullable Color color) {
       this.jstypeNative = jstypeNative;
       this.jstype = null;
       this.color = color;
       this.colorId = null;
     }
 
-    JSTypeOrColor(JSType jstype, Color color) {
+    JSTypeOrColor(@Nullable JSType jstype, @Nullable Color color) {
       this.jstype = jstype;
       this.jstypeNative = null;
       this.color = color;

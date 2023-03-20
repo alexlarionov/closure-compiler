@@ -31,6 +31,7 @@ public final class RewriteNullishCoalesceOperatorTest extends CompilerTestCase {
     enableTypeCheck();
     enableTypeInfoValidation();
     replaceTypesWithColors();
+    enableMultistageCompilation();
   }
 
   @Override
@@ -54,6 +55,15 @@ public final class RewriteNullishCoalesceOperatorTest extends CompilerTestCase {
         expected(
             "let $jscomp$nullish$tmp0; ($jscomp$nullish$tmp0 = x + y) != null ?"
                 + " $jscomp$nullish$tmp0 : (a && b)"));
+  }
+
+  @Test
+  public void insideArrowFunctionBody() {
+    test(
+        srcs("() => (x + y) ?? (a && b)"),
+        expected(
+            "() => { let $jscomp$nullish$tmp0; return ($jscomp$nullish$tmp0 = x + y) != null ?"
+                + " $jscomp$nullish$tmp0 : (a && b) }"));
   }
 
   @Test

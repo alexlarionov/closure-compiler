@@ -20,7 +20,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.deps.ModuleLoader;
 import com.google.javascript.jscomp.deps.ModuleLoader.PathEscaper;
-import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -28,7 +27,7 @@ import org.junit.runners.JUnit4;
 
 @RunWith(JUnit4.class)
 public final class Es6RewriteModulesToCommonJsModulesTest extends CompilerTestCase {
-  private List<String> moduleRoots;
+  private ImmutableList<String> moduleRoots;
   private ModuleLoader.ResolutionMode resolutionMode;
   private ImmutableMap<String, String> prefixReplacements;
   private PathEscaper pathEscaper;
@@ -496,7 +495,7 @@ public final class Es6RewriteModulesToCommonJsModulesTest extends CompilerTestCa
 
   @Test
   public void testProtocolInImportPathIsError() {
-    testError("import * as foo from 'file://imported.js';", Es6ToEs3Util.CANNOT_CONVERT);
+    testError("import * as foo from 'file://imported.js';", TranspilationUtil.CANNOT_CONVERT);
   }
 
   @Test

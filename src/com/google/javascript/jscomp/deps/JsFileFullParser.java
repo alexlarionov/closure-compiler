@@ -73,10 +73,11 @@ public class JsFileFullParser {
     public boolean testonly = false;
     public ModuleType moduleType = ModuleType.UNKNOWN;
 
-    public final Set<String> hasSoyDelcalls = new TreeSet<>();
-    public final Set<String> hasSoyDeltemplates = new TreeSet<>();
+    public final Set<String> delcalls = new TreeSet<>();
+    public final Set<String> deltemplates = new TreeSet<>();
     // Use a LinkedHashSet as import order matters!
     public final Set<String> importedModules = new LinkedHashSet<>();
+    public final Set<String> dynamicRequires = new LinkedHashSet<>();
     public final List<String> modName = new ArrayList<>();
     public final List<String> mods = new ArrayList<>();
 
@@ -98,8 +99,8 @@ public class JsFileFullParser {
     /** Annotation name, e.g. "@fileoverview" or "@externs". */
     final String name;
     /**
-     * Annotation value: either the bare identifier immediately after the
-     * annotation, or else string in braces.
+     * Annotation value: either the bare identifier immediately after the annotation, or else string
+     * in braces.
      */
     final String value;
 
@@ -170,10 +171,11 @@ public class JsFileFullParser {
               protected void printSummary() {}
             });
     SourceFile source = SourceFile.fromCode(filename, code);
-    compiler.init(
-        ImmutableList.<SourceFile>of(),
-        ImmutableList.<SourceFile>of(source),
-        new CompilerOptions());
+
+    CompilerOptions options = new CompilerOptions();
+    options.setChecksOnly(true);
+
+    compiler.init(ImmutableList.of(), ImmutableList.of(source), options);
 
     Config config =
         ParserRunner.createConfig(
@@ -181,8 +183,8 @@ public class JsFileFullParser {
             Config.LanguageMode.ES_NEXT,
             Config.JsDocParsing.INCLUDE_DESCRIPTIONS_NO_WHITESPACE,
             Config.RunMode.STOP_AFTER_ERROR,
-            /* extraAnnotationNames */ ImmutableSet.<String>of(),
-            /* parseInlineSourceMaps */ true,
+            /* extraAnnotationNames= */ ImmutableSet.<String>of(),
+            /* parseInlineSourceMaps= */ true,
             Config.StrictMode.SLOPPY);
     FileInfo info = new FileInfo();
     ParserRunner.ParseResult parsed = ParserRunner.parse(source, code, config, errorReporter);
@@ -210,8 +212,7 @@ public class JsFileFullParser {
       return info; // Avoid potential crashes due to assumptions of the code below being violated.
     }
     ModuleMetadata module =
-        Iterables.getOnlyElement(
-            compiler.getModuleMetadataMap().getModulesByPath().values());
+        Iterables.getOnlyElement(compiler.getModuleMetadataMap().getModulesByPath().values());
     if (module.isEs6Module()) {
       info.loadFlags.put("module", "es6");
     } else if (module.isGoogModule()) {
@@ -249,6 +250,7 @@ public class JsFileFullParser {
     if (module.usesClosure()) {
       info.provides.addAll(module.googNamespaces());
       info.requires.addAll(module.stronglyRequiredGoogNamespaces());
+      info.dynamicRequires.addAll(module.dynamicallyRequiredGoogNamespaces().elementSet());
       info.typeRequires.addAll(module.weaklyRequiredGoogNamespaces());
       info.testonly = module.isTestOnly();
     }
@@ -294,14 +296,20 @@ public class JsFileFullParser {
             info.requiresCss.add(annotation.value);
           }
           break;
+        case "@deltemplate":
         case "@hassoydeltemplate":
+          // TODO(b/210468818): Remove legacy @hassoydeltemplate annotation once Soy gencode has
+          // been updated to use the new one.
           if (!annotation.value.isEmpty()) {
-            info.hasSoyDeltemplates.add(annotation.value);
+            info.deltemplates.add(annotation.value);
           }
           break;
+        case "@delcall":
         case "@hassoydelcall":
+          // TODO(b/210468818): Remove legacy @hassoydelcall annotation once Soy gencode has
+          // been updated to use the new one.
           if (!annotation.value.isEmpty()) {
-            info.hasSoyDelcalls.add(annotation.value);
+            info.delcalls.add(annotation.value);
           }
           break;
         case "@externs":

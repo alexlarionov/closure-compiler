@@ -19,7 +19,7 @@ package com.google.javascript.jscomp;
 import static com.google.common.base.Preconditions.checkState;
 
 import com.google.javascript.rhino.Node;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  * Annotates nodes with information from their original input file before the compiler performs work
@@ -35,9 +35,9 @@ import javax.annotation.Nullable;
  * </ul>
  */
 public final class SourceInformationAnnotator extends NodeTraversal.AbstractPostOrderCallback {
-  @Nullable private final String sourceFileToCheck;
+  private final @Nullable String sourceFileToCheck;
 
-  private SourceInformationAnnotator(String sourceFileToCheck) {
+  private SourceInformationAnnotator(@Nullable String sourceFileToCheck) {
     this.sourceFileToCheck = sourceFileToCheck;
   }
 
@@ -90,7 +90,7 @@ public final class SourceInformationAnnotator extends NodeTraversal.AbstractPost
       case GETTER_DEF:
       case SETTER_DEF:
       case STRING_KEY:
-        return node.getParent().isObjectLit() && !node.isQuotedString();
+        return node.getParent().isObjectLit() && !node.isQuotedStringKey();
 
       default:
         return false;

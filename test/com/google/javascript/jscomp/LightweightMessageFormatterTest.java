@@ -17,12 +17,14 @@ package com.google.javascript.jscomp;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertThrows;
 
 import com.google.debugging.sourcemap.proto.Mapping.OriginalMapping;
 import com.google.javascript.jscomp.LightweightMessageFormatter.LineNumberingFormatter;
 import com.google.javascript.jscomp.SourceExcerptProvider.SourceExcerpt;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
+import org.jspecify.nullness.Nullable;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -187,6 +189,17 @@ public final class LightweightMessageFormatterTest {
   }
 
   @Test
+  public void testMultiline_charNoOutOfBoundsCrashes() {
+    Node n = Node.newString("foobar").setLinenoCharno(5, 800);
+    n.setLength("foobar".length());
+    n.setSourceFileForTesting("javascript/complex.js");
+    JSError error = JSError.make(n, FOO_TYPE);
+    LightweightMessageFormatter formatter = formatter("    if (foobar) {", SourceExcerpt.FULL, 5);
+
+    assertThrows(Exception.class, () -> formatter.formatError(error));
+  }
+
+  @Test
   public void testMultiline_longTruncatedErrorMessage() {
     Node qname = IR.getprop(IR.name("a"), "b", "c", "d", "e");
     qname.setLinenoCharno(8, 0);
@@ -264,12 +277,12 @@ public final class LightweightMessageFormatterTest {
     return new LightweightMessageFormatter(source(string, originalSource));
   }
 
-  private SourceExcerptProvider source(final String source, final String originalSource) {
+  private SourceExcerptProvider source(final String source, final @Nullable String originalSource) {
     return source(source, originalSource, -1);
   }
 
   private SourceExcerptProvider source(
-      final String source, final String originalSource, final int endLineNumber) {
+      final String source, final @Nullable String originalSource, final int endLineNumber) {
     return new SourceExcerptProvider() {
       @Override
       public String getSourceLine(String sourceName, int lineNumber) {
@@ -303,7 +316,7 @@ public final class LightweightMessageFormatterTest {
     };
   }
 
-  private String format(Region region) {
+  private String format(@Nullable Region region) {
     return new LineNumberingFormatter().formatRegion(region);
   }
 

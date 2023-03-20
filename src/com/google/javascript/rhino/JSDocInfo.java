@@ -40,6 +40,7 @@
 package com.google.javascript.rhino;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Strings.nullToEmpty;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -63,7 +64,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.Supplier;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  * JSDoc information describing JavaScript code. JSDoc is represented as a unified object with
@@ -96,13 +97,14 @@ public class JSDocInfo implements Serializable {
       values[this.bit] = this;
     }
 
+    @SuppressWarnings("unchecked")
     @Nullable
-    @SuppressWarnings("unchecked") // cast to T is unsafe but guaranteed by builder
-    T get(JSDocInfo info) {
+        // cast to T is unsafe but guaranteed by builder
+        T get(JSDocInfo info) {
       if ((info.propertyKeysBitset & mask) == 0) {
         return null;
       }
-      return (T) info.propertyValues.get(Long.bitCount(info.propertyKeysBitset & (mask - 1)));
+      return (T) info.getPropertyValueByIndex(Long.bitCount(info.propertyKeysBitset & (mask - 1)));
     }
 
     T clone(T arg, @Nullable TypeTransform transform) {
@@ -322,6 +324,7 @@ public class JSDocInfo implements Serializable {
     NOSIDEEFFECTS,
     EXTERNS,
     NOCOMPILE,
+    NODTS,
     UNRESTRICTED,
     STRUCT,
     DICT,
@@ -339,13 +342,12 @@ public class JSDocInfo implements Serializable {
     MIXIN_CLASS,
     MIXIN_FUNCTION,
 
-    LOCALE_FILE,
-    LOCALE_SELECT,
-    LOCALE_OBJECT,
-    LOCALE_VALUE,
-
     // `@provideGoog` only appears in base.js
-    PROVIDE_GOOG;
+    PROVIDE_GOOG,
+    PROVIDE_ALREADY_PROVIDED,
+
+    WIZ_CALLBACK,
+    LOG_TYPE_IN_COMPILER;
 
     final String name;
     final long mask;
@@ -366,24 +368,34 @@ public class JSDocInfo implements Serializable {
 
   private final long propertyBits;
   private final long propertyKeysBitset;
-  private final ImmutableList<Object> propertyValues;
+
+  /**
+   * This value will be `null` if there is no property, a literal value if there is only one, or an
+   * `Object[]` if there are multiple.
+   *
+   * <p>This is meant to elide eager allocation of single-valued or empty lists.
+   */
+  private final @Nullable Object propertyValues;
 
   @SuppressWarnings("unchecked")
   private JSDocInfo(long bits, TreeMap<Property<?>, Object> props) {
     long keys = 0;
-    ImmutableList.Builder<Object> values = ImmutableList.builder();
+    List<Object> values = new ArrayList<>();
     for (Map.Entry<Property<?>, Object> entry : props.entrySet()) {
       Property<Object> prop = (Property<Object>) entry.getKey();
       Object value = entry.getValue();
       if (!prop.isDefault(value)) {
         keys |= prop.mask;
+
+        // Ensure that another codepath did not inadvertently retrieve a reference to the array
+        // or a `null` value.
+        checkState(!(value instanceof Object[]) && (value != null));
         values.add(value);
-      } else {
       }
     }
     this.propertyBits = bits;
     this.propertyKeysBitset = keys;
-    this.propertyValues = values.build();
+    this.propertyValues = packPropertyValues(values);
   }
 
   private boolean checkBit(Bit bit) {
@@ -397,7 +409,7 @@ public class JSDocInfo implements Serializable {
     while (bits > 0) {
       int low = Long.numberOfTrailingZeros(bits);
       bits &= ~(1L << low);
-      map.put(Property.values[low], propertyValues.get(index++));
+      map.put(Property.values[low], getPropertyValueByIndex(index++));
     }
     return map;
   }
@@ -474,8 +486,8 @@ public class JSDocInfo implements Serializable {
   private static final Property<String> FILEOVERVIEW_DESCRIPTION =
       new Property<>("fileoverviewDescription");
   private static final Property<String> RETURN_DESCRIPTION = new Property<>("returnDescription");
-  private static final Property<String> VERSION = new Property<>("version");
   private static final Property<String> ENHANCED_NAMESPACE = new Property<>("enhance");
+  private static final Property<List<String>> TS_TYPES = new Property<>("tsType");
 
   private static final Property<List<String>> AUTHORS = new Property<>("authors");
   private static final Property<List<String>> SEES = new Property<>("sees");
@@ -622,7 +634,7 @@ public class JSDocInfo implements Serializable {
   }
 
   @SuppressWarnings("unchecked")
-  private Builder toBuilder(TypeTransform transform) {
+  private Builder toBuilder(@Nullable TypeTransform transform) {
     Builder builder = new Builder();
     // inline type isn't copied...?
     builder.bits = propertyBits & ~Bit.INLINE_TYPE.mask;
@@ -673,8 +685,8 @@ public class JSDocInfo implements Serializable {
       int low = Long.numberOfTrailingZeros(bits);
       bits &= ~(1L << low);
       Property<Object> prop = (Property<Object>) Property.values[low];
-      Object a = jsDoc1.propertyValues.get(index);
-      Object b = jsDoc2.propertyValues.get(index++);
+      Object a = jsDoc1.getPropertyValueByIndex(index);
+      Object b = jsDoc2.getPropertyValueByIndex(index++);
       if ((a == null) != (b == null) || (a != null && !prop.equalValues(a, b))) {
         return false;
       }
@@ -830,6 +842,11 @@ public class JSDocInfo implements Serializable {
     return checkBit(Bit.NOCOMPILE);
   }
 
+  /** Returns whether the {@code @nodts} annotation is present on this {@link JSDocInfo}. */
+  public boolean isNoDts() {
+    return checkBit(Bit.NODTS);
+  }
+
   /** Returns whether the {@code @nocollapse} annotation is present on this {@link JSDocInfo}. */
   public boolean isNoCollapse() {
     return checkBit(Bit.NOCOLLAPSE);
@@ -860,29 +877,17 @@ public class JSDocInfo implements Serializable {
     return checkBit(Bit.PURE_OR_BREAK_MY_CODE);
   }
 
-  /** Returns whether the {@code @localeFile} annotation is present on this {@link JSDocInfo}. */
-  public boolean isLocaleFile() {
-    return checkBit(Bit.LOCALE_FILE);
-  }
-
-  /** Returns whether the {@code @localeFile} annotation is present on this {@link JSDocInfo}. */
-  public boolean isLocaleSelect() {
-    return checkBit(Bit.LOCALE_SELECT);
-  }
-
-  /** Returns whether the {@code @localeFile} annotation is present on this {@link JSDocInfo}. */
-  public boolean isLocaleObject() {
-    return checkBit(Bit.LOCALE_OBJECT);
-  }
-
-  /** Returns whether the {@code @localeFile} annotation is present on this {@link JSDocInfo}. */
-  public boolean isLocaleValue() {
-    return checkBit(Bit.LOCALE_VALUE);
-  }
-
   /** Returns whether the {@code @provideGoog} annotation is present on this {@link JSDocInfo}. */
   public boolean isProvideGoog() {
     return checkBit(Bit.PROVIDE_GOOG);
+  }
+
+  /**
+   * Returns whether the {@code @provideAlreadyProvided} annotation is present on this {@link
+   * JSDocInfo}.
+   */
+  public boolean isProvideAlreadyProvided() {
+    return checkBit(Bit.PROVIDE_ALREADY_PROVIDED);
   }
 
   /**
@@ -964,7 +969,7 @@ public class JSDocInfo implements Serializable {
         || (propertyKeysBitset & (ENUM_PARAMETER_TYPE.mask | TYPEDEF_TYPE.mask)) != 0;
   }
 
-  /** @return whether the {@code @code} is present within this {@link JSDocInfo}. */
+  /** Returns whether the {@code @code} is present within this {@link JSDocInfo}. */
   public boolean isAtSignCodePresent() {
     final String entireComment = getOriginalCommentString();
     return (entireComment == null) ? false : entireComment.contains("@code");
@@ -986,7 +991,7 @@ public class JSDocInfo implements Serializable {
    * @return the parameter's type or {@code null} if this parameter is not defined or has a {@code
    *     null} type
    */
-  public JSTypeExpression getParameterType(String parameter) {
+  public @Nullable JSTypeExpression getParameterType(String parameter) {
     LinkedHashMap<String, JSTypeExpression> params = PARAMETERS.get(this);
     return params != null ? params.get(parameter) : null;
   }
@@ -1023,7 +1028,7 @@ public class JSDocInfo implements Serializable {
    * Returns the nth name in the defined parameters. The iteration order is the order in which
    * parameters are defined in the JSDoc, rather than the order in which the function declares them.
    */
-  public String getParameterNameAt(int index) {
+  public @Nullable String getParameterNameAt(int index) {
     LinkedHashMap<String, JSTypeExpression> params = PARAMETERS.get(this);
     if (params == null || index >= params.size()) {
       return null;
@@ -1122,6 +1127,12 @@ public class JSDocInfo implements Serializable {
     return DESCRIPTION.get(this);
   }
 
+  /** Gets the ts type declarations specified by the {@code @tsType} annotations. */
+  public ImmutableList<String> getTsTypes() {
+    List<String> types = TS_TYPES.get(this);
+    return types != null ? ImmutableList.copyOf(types) : ImmutableList.of();
+  }
+
   /**
    * Gets the meaning specified by the {@code @meaning} annotation.
    *
@@ -1184,6 +1195,11 @@ public class JSDocInfo implements Serializable {
     return checkBit(Bit.WIZ_ACTION);
   }
 
+  /** Returns if JSDoc is annotated with {@code @wizcallback} annotation. */
+  public boolean isWizcallback() {
+    return checkBit(Bit.WIZ_CALLBACK);
+  }
+
   /** Returns whether JSDoc is annotated with {@code @polymerBehavior} annotation. */
   public boolean isPolymerBehavior() {
     return checkBit(Bit.POLYMER_BEHAVIOR);
@@ -1236,7 +1252,7 @@ public class JSDocInfo implements Serializable {
     while (bits > 0) {
       int low = Long.numberOfTrailingZeros(bits);
       bits &= ~(1L << low);
-      helper = helper.add(Property.values[low].name, propertyValues.get(index++));
+      helper = helper.add(Property.values[low].name, getPropertyValueByIndex(index++));
     }
 
     return helper.omitNullValues().toString();
@@ -1288,7 +1304,7 @@ public class JSDocInfo implements Serializable {
     if (suppressions == null) {
       return ImmutableSet.of();
     }
-    Set<ImmutableSet<String>> nameSets = suppressions.keySet();
+    ImmutableSet<ImmutableSet<String>> nameSets = suppressions.keySet();
     Set<String> names = new LinkedHashSet<>();
     for (Set<String> nameSet : nameSets) {
       names.addAll(nameSet);
@@ -1318,7 +1334,7 @@ public class JSDocInfo implements Serializable {
   }
 
   /** Returns the description for the parameter with the given name, if its exists. */
-  public String getDescriptionForParameter(String name) {
+  public @Nullable String getDescriptionForParameter(String name) {
     LinkedHashMap<String, String> params = PARAMETER_DESCRIPTIONS.get(this);
     return params != null ? params.get(name) : null;
   }
@@ -1331,11 +1347,6 @@ public class JSDocInfo implements Serializable {
   /** Returns the list of references or null if none. */
   public List<String> getReferences() {
     return SEES.get(this);
-  }
-
-  /** Returns the version or null if none. */
-  public String getVersion() {
-    return VERSION.get(this);
   }
 
   /** Returns the description of the returned object or null if none specified. */
@@ -1426,7 +1437,7 @@ public class JSDocInfo implements Serializable {
       int low = Long.numberOfTrailingZeros(bits);
       bits &= ~(1L << low);
       Property<Object> prop = (Property<Object>) Property.values[low];
-      for (JSTypeExpression type : prop.getTypeExpressions(propertyValues.get(index++))) {
+      for (JSTypeExpression type : prop.getTypeExpressions(getPropertyValueByIndex(index++))) {
         if (type != null) {
           builder.add(type);
         }
@@ -1496,6 +1507,31 @@ public class JSDocInfo implements Serializable {
     return (modifies.size() > 1 || (modifies.size() == 1 && !modifies.contains("this")));
   }
 
+  /** Returns whether we should log the type of values passed to this function. */
+  public boolean getLogTypeInCompiler() {
+    return checkBit(Bit.LOG_TYPE_IN_COMPILER);
+  }
+
+  protected Object getPropertyValueByIndex(int index) {
+    if (propertyValues == null) {
+      throw new IllegalArgumentException("no property value");
+    }
+
+    if (propertyValues instanceof Object[]) {
+      return ((Object[]) propertyValues)[index];
+    }
+
+    if (index != 0) {
+      throw new ArrayIndexOutOfBoundsException(index);
+    }
+
+    return propertyValues;
+  }
+
+  private static @Nullable Object packPropertyValues(List<Object> values) {
+    return values.isEmpty() ? null : (values.size() == 1 ? values.get(0) : values.toArray());
+  }
+
   /**
    * A builder for {@link JSDocInfo} objects. This builder is required because JSDocInfo instances
    * have immutable structure. It provides early incompatibility detection among properties stored
@@ -1510,7 +1546,7 @@ public class JSDocInfo implements Serializable {
     // the current marker, if any.
     Marker currentMarker;
     // the set of unique license texts
-    Set<String> licenseTexts = new HashSet<>();
+    Set<String> licenseTexts;
 
     public static Builder copyFrom(JSDocInfo info) {
       return info.toBuilder();
@@ -1626,7 +1662,7 @@ public class JSDocInfo implements Serializable {
      *     value was populated and {@code always} is false, returns {@code null}. If {@code always}
      *     is true, returns a default JSDocInfo.
      */
-    public JSDocInfo build(boolean always) {
+    public @Nullable JSDocInfo build(boolean always) {
       if (populated || always) {
         JSDocInfo info = new JSDocInfo(bits, props);
         populated = false;
@@ -1666,7 +1702,7 @@ public class JSDocInfo implements Serializable {
       currentMarker = marker;
     }
 
-    private Marker addMarker() {
+    private @Nullable Marker addMarker() {
       if (shouldParseDocumentation()) {
         ArrayList<Marker> markers = getProp(MARKERS);
         if (markers == null) {
@@ -1768,7 +1804,8 @@ public class JSDocInfo implements Serializable {
      *     with the same name was already defined
      */
     public boolean recordParameter(String parameterName, JSTypeExpression type) {
-      return !hasAnySingletonTypeTags() && populatePropEntry(PARAMETERS, parameterName, type);
+      return !hasAnySingletonTypeTags()
+          && populatePropEntry(PARAMETERS, RhinoStringPool.addOrGet(parameterName), type);
     }
 
     /**
@@ -1781,7 +1818,8 @@ public class JSDocInfo implements Serializable {
       if (!shouldParseDocumentation()) {
         return true;
       }
-      return populatePropEntry(PARAMETER_DESCRIPTIONS, parameterName, description);
+      return populatePropEntry(
+          PARAMETER_DESCRIPTIONS, RhinoStringPool.addOrGet(parameterName), description);
     }
 
     /**
@@ -1794,7 +1832,7 @@ public class JSDocInfo implements Serializable {
       return recordTemplateTypeName(name, null);
     }
 
-    public boolean recordTemplateTypeName(String name, JSTypeExpression bound) {
+    public boolean recordTemplateTypeName(String name, @Nullable JSTypeExpression bound) {
       if (bound == null) {
         bound = JSTypeExpression.IMPLICIT_TEMPLATE_BOUND;
       }
@@ -1803,7 +1841,7 @@ public class JSDocInfo implements Serializable {
           || props.containsKey(TYPEDEF_TYPE)) {
         return false;
       }
-      return populatePropEntry(TEMPLATE_TYPE_NAMES, name, bound);
+      return populatePropEntry(TEMPLATE_TYPE_NAMES, RhinoStringPool.addOrGet(name), bound);
     }
 
     /** Records a type transformation expression together with its template type name. */
@@ -1812,14 +1850,14 @@ public class JSDocInfo implements Serializable {
       if (names != null && names.containsKey(name)) {
         return false;
       }
-      return populatePropEntry(TYPE_TRANSFORMATIONS, name, expr);
+      return populatePropEntry(TYPE_TRANSFORMATIONS, RhinoStringPool.addOrGet(name), expr);
     }
 
     /**
      * Records a throw annotation description.
      *
-     * @return {@code true} if the type's description was recorded. The description
-     *     of a throw annotation is the text including the type.
+     * @return {@code true} if the type's description was recorded. The description of a throw
+     *     annotation is the text including the type.
      */
     public boolean recordThrowsAnnotation(String annotation) {
       populated = true;
@@ -1916,14 +1954,6 @@ public class JSDocInfo implements Serializable {
       return populateProp(ID_GENERATOR, IdGenerator.UNIQUE);
     }
 
-    /** Records the version. */
-    public boolean recordVersion(String version) {
-      if (!shouldParseDocumentation()) {
-        return true;
-      }
-      return populateProp(VERSION, version);
-    }
-
     /** Records the deprecation reason. */
     public boolean recordDeprecationReason(String reason) {
       return populateProp(DEPRECATION_REASON, reason);
@@ -1945,8 +1975,8 @@ public class JSDocInfo implements Serializable {
         }
         mapBuilder.putAll(current);
       }
-      mapBuilder.put(suppressions, description);
-      ImmutableMap<ImmutableSet<String>, String> suppressionsMap = mapBuilder.build();
+      mapBuilder.put(internSet(suppressions), description);
+      ImmutableMap<ImmutableSet<String>, String> suppressionsMap = mapBuilder.buildOrThrow();
       setProp(SUPPRESSIONS, suppressionsMap);
     }
 
@@ -1964,8 +1994,7 @@ public class JSDocInfo implements Serializable {
 
     /** Records the list of modifies warnings. */
     public boolean recordModifies(Set<String> modifies) {
-      return !hasAnySingletonSideEffectTags()
-          && populateProp(MODIFIES, ImmutableSet.copyOf(modifies));
+      return !hasAnySingletonSideEffectTags() && populateProp(MODIFIES, internSet(modifies));
     }
 
     /**
@@ -2124,6 +2153,12 @@ public class JSDocInfo implements Serializable {
       return populateProp(DESCRIPTION, description);
     }
 
+    /** Records a tsType giving context for .d.ts generation */
+    public void recordTsType(String tsType) {
+      populated = true;
+      getPropWithDefault(TS_TYPES, ArrayList::new).add(tsType);
+    }
+
     /**
      * Records a meaning giving context for translation (i18n). Different meanings will result in
      * different translations.
@@ -2149,7 +2184,7 @@ public class JSDocInfo implements Serializable {
      * @return {@code true} If the id was successfully updated.
      */
     public boolean recordClosurePrimitiveId(String closurePrimitiveId) {
-      return populateProp(CLOSURE_PRIMITIVE_ID, closurePrimitiveId);
+      return populateProp(CLOSURE_PRIMITIVE_ID, RhinoStringPool.addOrGet(closurePrimitiveId));
     }
 
     /**
@@ -2179,18 +2214,26 @@ public class JSDocInfo implements Serializable {
     }
 
     public boolean recordLicense(String license) {
-      setProp(LICENSE, license);
+      setProp(LICENSE, RhinoStringPool.addOrGet(license));
       populated = true;
       return true;
     }
 
     public boolean addLicense(String license) {
+      // The vast majority of JSDoc doesn't have @license so it make sense to be lazy about building
+      // the HashSet.
+      if (licenseTexts == null) {
+        // The HashSet is only used to remove duplicates, it is never read beyond the add,
+        // so LinkedHashSet is not required.
+        licenseTexts = new HashSet<>();
+      }
+
       if (!licenseTexts.add(license)) {
         return false;
       }
 
       String txt = getProp(LICENSE);
-      return recordLicense(nullToEmpty(txt) + license);
+      return recordLicense(RhinoStringPool.addOrGet(nullToEmpty(txt) + license));
     }
 
     /**
@@ -2213,6 +2256,17 @@ public class JSDocInfo implements Serializable {
      */
     public boolean recordNoCompile() {
       return populateBit(Bit.NOCOMPILE, true);
+    }
+
+    /**
+     * Records that the {@link JSDocInfo} being built should have its {@link
+     * JSDocInfo#isNoDtsOutput()} flag set to {@code true}.
+     *
+     * @return {@code true} if the no compile flag was recorded and {@code false} if it was already
+     *     recorded
+     */
+    public boolean recordNoDts() {
+      return populateBit(Bit.NODTS, true);
     }
 
     /**
@@ -2297,52 +2351,12 @@ public class JSDocInfo implements Serializable {
           && populateBit(Bit.INTERFACE, true);
     }
 
-    /**
-     * Records that the {@link JSDocInfo} being built should have its {@link JSDocInfo#xxx()} flag
-     * set to {@code true}.
-     *
-     * @return {@code true} if the no inline flag was recorded and {@code false} if it was already
-     *     recorded
-     */
-    public boolean recordLocaleFile() {
-      return populateBit(Bit.LOCALE_FILE, true);
-    }
-
-    /**
-     * Records that the {@link JSDocInfo} being built should have its {@link JSDocInfo#xxx()} flag
-     * set to {@code true}.
-     *
-     * @return {@code true} if the no inline flag was recorded and {@code false} if it was already
-     *     recorded
-     */
-    public boolean recordLocaleObject() {
-      return populateBit(Bit.LOCALE_OBJECT, true);
-    }
-
-    /**
-     * Records that the {@link JSDocInfo} being built should have its {@link JSDocInfo#xxx()} flag
-     * set to {@code true}.
-     *
-     * @return {@code true} if the no inline flag was recorded and {@code false} if it was already
-     *     recorded
-     */
-    public boolean recordLocaleValue() {
-      return populateBit(Bit.LOCALE_VALUE, true);
-    }
-
-    /**
-     * Records that the {@link JSDocInfo} being built should have its {@link JSDocInfo#xxx()} flag
-     * set to {@code true}.
-     *
-     * @return {@code true} if the no inline flag was recorded and {@code false} if it was already
-     *     recorded
-     */
-    public boolean recordLocaleSelect() {
-      return populateBit(Bit.LOCALE_SELECT, true);
-    }
-
     public boolean recordProvideGoog() {
       return populateBit(Bit.PROVIDE_GOOG, true);
+    }
+
+    public boolean recordProvideAlreadyProvided() {
+      return populateBit(Bit.PROVIDE_ALREADY_PROVIDED, true);
     }
 
     /**
@@ -2503,7 +2517,7 @@ public class JSDocInfo implements Serializable {
       return checkBit(Bit.INTERFACE);
     }
 
-    /** @return Whether a parameter of the given name has already been recorded. */
+    /** Returns whether a parameter of the given name has already been recorded. */
     public boolean hasParameter(String name) {
       Map<String, JSTypeExpression> params = getProp(PARAMETERS);
       return params != null && params.containsKey(name);
@@ -2555,6 +2569,16 @@ public class JSDocInfo implements Serializable {
       return populateBit(Bit.WIZ_ACTION, true);
     }
 
+    /** Returns if current JSDoc is annotated with {@code @wizcallback}. */
+    public boolean isWizcallbackRecorded() {
+      return checkBit(Bit.WIZ_CALLBACK);
+    }
+
+    /** Records that this method is to be exposed as a wizcallback. */
+    public boolean recordWizcallback() {
+      return populateBit(Bit.WIZ_CALLBACK, true);
+    }
+
     /** Returns whether current JSDoc is annotated with {@code @polymerBehavior}. */
     public boolean isPolymerBehaviorRecorded() {
       return checkBit(Bit.POLYMER_BEHAVIOR);
@@ -2603,6 +2627,16 @@ public class JSDocInfo implements Serializable {
     /** Records that this method is to be exposed as a mixinFunction. */
     public boolean recordMixinFunction() {
       return populateBit(Bit.MIXIN_FUNCTION, true);
+    }
+
+    /** Returns whether we should log the type of values passed to this function. */
+    public boolean logTypeInCompiler() {
+      return checkBit(Bit.LOG_TYPE_IN_COMPILER);
+    }
+
+    /** Records that the types of values passed to this method should be logged in the compiler. */
+    public boolean recordLogTypeInCompiler() {
+      return populateBit(Bit.LOG_TYPE_IN_COMPILER, true);
     }
 
     // TODO(sdh): this is a new method - consider removing it in favor of recordType?
@@ -2667,9 +2701,8 @@ public class JSDocInfo implements Serializable {
       props.put(prop, value);
     }
 
-    @Nullable
     @SuppressWarnings("unchecked")
-    private <T> T getProp(Property<T> prop) {
+    private <T> @Nullable T getProp(Property<T> prop) {
       return (T) props.get(prop);
     }
 
@@ -2713,5 +2746,13 @@ public class JSDocInfo implements Serializable {
       }
       return false;
     }
+  }
+
+  private static ImmutableSet<String> internSet(Set<String> strings) {
+    ImmutableSet.Builder<String> interned = ImmutableSet.builderWithExpectedSize(strings.size());
+    for (String s : strings) {
+      interned.add(RhinoStringPool.addOrGet(s));
+    }
+    return interned.build();
   }
 }

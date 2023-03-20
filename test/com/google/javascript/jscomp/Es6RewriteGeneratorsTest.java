@@ -19,8 +19,11 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.javascript.rhino.testing.NodeSubject.assertNode;
 
+import com.google.common.collect.Iterables;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
+import com.google.javascript.jscomp.colors.Color;
 import com.google.javascript.jscomp.colors.StandardColors;
+import com.google.javascript.jscomp.testing.CodeSubTree;
 import com.google.javascript.jscomp.testing.TestExternsBuilder;
 import com.google.javascript.rhino.Node;
 import org.junit.Before;
@@ -63,6 +66,7 @@ public final class Es6RewriteGeneratorsTest extends CompilerTestCase {
     enableTypeCheck();
     enableTypeInfoValidation();
     replaceTypesWithColors();
+    enableMultistageCompilation();
   }
 
   @Override
@@ -550,8 +554,9 @@ public final class Es6RewriteGeneratorsTest extends CompilerTestCase {
 
   @Test
   public void testGeneratorCannotConvertYet() {
-    testError("function *f(b, i) {switch (i) { case yield: return b; }}",
-        Es6ToEs3Util.CANNOT_CONVERT_YET);
+    testError(
+        "function *f(b, i) {switch (i) { case yield: return b; }}",
+        TranspilationUtil.CANNOT_CONVERT_YET);
   }
 
   @Test
@@ -1346,8 +1351,14 @@ public final class Es6RewriteGeneratorsTest extends CompilerTestCase {
 
     Node yieldFn = callNode.getFirstChild();
     Node jscompGeneratorContext = yieldFn.getFirstChild();
-    assertThat(jscompGeneratorContext.getColor().getDebugInfo().getCompositeTypename())
-        .contains("$jscomp.generator.Context");
+    Color generatorContext =
+        Iterables.getOnlyElement(
+            CodeSubTree.findFirstNode(
+                    getLastCompiler().getExternsRoot(),
+                    (n) -> n.matchesQualifiedName("$jscomp.generator.Context"))
+                .getColor()
+                .getInstanceColors());
+    assertThat(jscompGeneratorContext.getColor()).isEqualTo(generatorContext);
 
     // Check types on "1 + 2" are still present after transpilation
     Node yieldedValue = callNode.getSecondChild(); // 1 + 2
@@ -1414,12 +1425,17 @@ public final class Es6RewriteGeneratorsTest extends CompilerTestCase {
     // $jscomp$generator$forin$0 = $jscomp$generator$context.forIn([]);
     Node assign = case1Node.getSecondChild().getFirstFirstChild();
     checkState(assign.isAssign(), assign);
-    assertThat(assign.getColor().getDebugInfo().getCompositeTypename())
-        .contains("$jscomp.generator.Context.PropertyIterator");
-    assertThat(assign.getFirstChild().getColor().getDebugInfo().getCompositeTypename())
-        .contains("$jscomp.generator.Context.PropertyIterator");
-    assertThat(assign.getSecondChild().getColor().getDebugInfo().getCompositeTypename())
-        .contains("$jscomp.generator.Context.PropertyIterator");
+
+    Color propertyIterator =
+        Iterables.getOnlyElement(
+            CodeSubTree.findFirstNode(
+                    getLastCompiler().getExternsRoot(),
+                    (n) -> n.matchesQualifiedName("$jscomp.generator.Context.PropertyIterator"))
+                .getColor()
+                .getInstanceColors());
+    assertThat(assign.getColor()).isEqualTo(propertyIterator);
+    assertThat(assign.getFirstChild().getColor()).isEqualTo(propertyIterator);
+    assertThat(assign.getSecondChild().getColor()).isEqualTo(propertyIterator);
 
     // if (!((i = $jscomp$generator$forin$0.getNext()) != null)) {
     Node case2Node = case1Node.getNext();
@@ -1457,8 +1473,15 @@ public final class Es6RewriteGeneratorsTest extends CompilerTestCase {
     Node jscompGeneratorContext = jumpToEndFn.getFirstChild();
 
     // assertThat(jumpToEndCall.getJSType().toString()).isEqualTo("undefined");
-    assertThat(jscompGeneratorContext.getColor().getDebugInfo().getCompositeTypename())
-        .contains("$jscomp.generator.Context");
+
+    Color generatorContext =
+        Iterables.getOnlyElement(
+            CodeSubTree.findFirstNode(
+                    getLastCompiler().getExternsRoot(),
+                    (n) -> n.matchesQualifiedName("$jscomp.generator.Context"))
+                .getColor()
+                .getInstanceColors());
+    assertThat(jscompGeneratorContext.getColor()).isEqualTo(generatorContext);
   }
 
   @Test

@@ -16,7 +16,7 @@
 
 package com.google.javascript.jscomp;
 
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /** A warnings guard that suppresses some warnings incompatible with J2CL. */
 public final class J2clSuppressWarningsGuard extends WarningsGuard {
@@ -32,6 +32,12 @@ public final class J2clSuppressWarningsGuard extends WarningsGuard {
           DiagnosticGroups.CHECK_USELESS_CODE,
           DiagnosticGroups.CONST,
           DiagnosticGroups.EXTRA_REQUIRE,
+          // Kotlin allows provably invalid casts so long as it's via a safe cast. This causes J2CL
+          // to generate code of the form:
+          //   Foo.$isInstance(value) ? /**@type {!Foo}*/ (value) : null
+          // However, if value is obviously never a instance of Foo then this will cause invalid
+          // cast error. At runtime it's guarded so it would be safe regardless.
+          DiagnosticGroups.INVALID_CASTS,
           DiagnosticGroups.LATE_PROVIDE,
           DiagnosticGroups.MISSING_OVERRIDE,
           DiagnosticGroups.MISSING_REQUIRE,
@@ -43,8 +49,7 @@ public final class J2clSuppressWarningsGuard extends WarningsGuard {
           DiagnosticGroups.forName("transitionalSuspiciousCodeWarnings"));
 
   @Override
-  @Nullable
-  public CheckLevel level(JSError error) {
+  public @Nullable CheckLevel level(JSError error) {
     if (error.getSourceName() == null || !error.getSourceName().endsWith(".java.js")) {
       return null;
     }

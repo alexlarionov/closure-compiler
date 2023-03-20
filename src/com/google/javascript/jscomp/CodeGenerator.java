@@ -25,30 +25,34 @@ import com.google.debugging.sourcemap.Util;
 import com.google.javascript.jscomp.parsing.parser.FeatureSet;
 import com.google.javascript.jscomp.parsing.parser.FeatureSet.Feature;
 import com.google.javascript.jscomp.parsing.parser.util.SourcePosition;
+import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSDocInfo.Visibility;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.NonJSDocComment;
+import com.google.javascript.rhino.QualifiedName;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TokenStream;
-import java.util.HashMap;
-import java.util.Map;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /** CodeGenerator generates codes from a parse tree, sending it to the specified CodeConsumer. */
 public class CodeGenerator {
   private static final String LT_ESCAPED = "\\x3c";
   private static final String GT_ESCAPED = "\\x3e";
 
-  // A memoizer for formatting strings as JS strings.
-  private final Map<String, String> escapedJsStrings = new HashMap<>();
-
   private final CodeConsumer cc;
 
-  private final OutputCharsetEncoder outputCharsetEncoder;
+  private final @Nullable OutputCharsetEncoder outputCharsetEncoder;
 
   private final boolean preferSingleQuotes;
   private final boolean preserveTypeAnnotations;
   private final boolean printNonJSDocComments;
+  /**
+   * To distinguish between gents and non-gents mode so that we can turn off checking the sanity of
+   * the source location of comments, and also provide a different mode for comment printing between
+   * those two.
+   */
+  private final boolean gentsMode;
+
   private final boolean trustedStrings;
   private final boolean quoteKeywordProperties;
   private final boolean useOriginalName;
@@ -62,6 +66,7 @@ public class CodeGenerator {
     trustedStrings = true;
     preserveTypeAnnotations = false;
     printNonJSDocComments = false;
+    gentsMode = false;
     quoteKeywordProperties = false;
     useOriginalName = false;
     this.outputFeatureSet = FeatureSet.BARE_MINIMUM;
@@ -76,6 +81,7 @@ public class CodeGenerator {
     this.trustedStrings = options.trustedStrings;
     this.preserveTypeAnnotations = options.preserveTypeAnnotations;
     this.printNonJSDocComments = options.getPreserveNonJSDocComments();
+    this.gentsMode = options.gentsMode;
     this.quoteKeywordProperties = options.shouldQuoteKeywordProperties();
     this.useOriginalName = options.getUseOriginalNamesInOutput();
     this.outputFeatureSet = options.getOutputFeatureSet();
@@ -97,6 +103,85 @@ public class CodeGenerator {
     cc.endLine();
   }
 
+  private void printJSDocComment(Node node, JSDocInfo jsDocInfo) {
+    String jsdocAsString;
+    // In gents mode, we print NonJSDocInfo without special handling, as we already have
+    // pre-filtered the comments properly.
+    if (gentsMode) {
+      jsdocAsString = jsDocInfo.getOriginalCommentString();
+    } else {
+      jsdocAsString = jsDocInfoPrinter.print(jsDocInfo);
+    }
+    // Don't print an empty jsdoc
+    if (jsdocAsString != null && !jsdocAsString.equals("/** */ ")) {
+      add(jsdocAsString);
+      if (!node.isCast()) {
+        cc.endLine();
+      }
+    }
+  }
+
+  private void printNonJSDocComment(Node node, NonJSDocComment nonJSDocComment) {
+    String nonJSDocCommentString = nonJSDocComment.getCommentString();
+    if (!nonJSDocCommentString.isEmpty()) {
+      addNonJsDoc_nonTrailing(node, nonJSDocComment);
+    }
+  }
+
+  /**
+   * Print Leading JSDocComments or NonJSDocComments for the given node in order, depending on their
+   * source location.
+   */
+  protected void printLeadingCommentsInOrder(Node node) {
+    JSDocInfo jsDocInfo = node.getJSDocInfo();
+    NonJSDocComment nonJSDocComment = node.getNonJSDocComment();
+
+    boolean printJSDoc = preserveTypeAnnotations && jsDocInfo != null;
+    boolean printNonJSDoc = printNonJSDocComments && nonJSDocComment != null;
+    if (printJSDoc && printNonJSDoc) {
+      if (jsDocInfo.getOriginalCommentPosition() < nonJSDocComment.getStartPosition().getOffset()) {
+        printJSDocComment(node, jsDocInfo);
+        printNonJSDocComment(node, nonJSDocComment);
+      } else {
+        printNonJSDocComment(node, nonJSDocComment);
+        printJSDocComment(node, jsDocInfo);
+      }
+      return;
+    }
+
+    if (printJSDoc) {
+      printJSDocComment(node, jsDocInfo);
+      return;
+    }
+
+    if (printNonJSDoc) {
+      printNonJSDocComment(node, nonJSDocComment);
+      return;
+    }
+  }
+
+  /** Returns true when a node has a trailing comment. */
+  private boolean hasTrailingCommentOnSameLine(Node node) {
+    if (!printNonJSDocComments) {
+      return false;
+    }
+    return !node.getTrailingNonJSDocCommentString().isEmpty();
+  }
+
+  protected void printTrailingComment(Node node) {
+    // print any trailing nonJSDoc comment attached to this node
+    if (!printNonJSDocComments) {
+      return;
+    }
+    NonJSDocComment nonJSDocComment = node.getTrailingNonJSDocComment();
+    if (nonJSDocComment != null) {
+      String nonJSDocCommentString = node.getTrailingNonJSDocCommentString();
+      if (!nonJSDocCommentString.isEmpty()) {
+        addNonJsDoctrailing(nonJSDocComment, hasTrailingCommentOnSameLine(node));
+      }
+    }
+  }
+
   protected void add(String str) {
     cc.add(str);
   }
@@ -105,32 +190,21 @@ public class CodeGenerator {
     add(n, Context.OTHER);
   }
 
+  private static final QualifiedName JSCOMP_SCOPE = QualifiedName.of("$jscomp.scope");
+
   protected void add(Node node, Context context) {
+    add(node, context, true);
+  }
+
+  /** Generate the current node */
+  protected void add(Node node, Context context, boolean printComments) {
     if (!cc.continueProcessing()) {
       return;
     }
-
-    if (preserveTypeAnnotations && node.getJSDocInfo() != null) {
-      String jsdocAsString = jsDocInfoPrinter.print(node.getJSDocInfo());
-      // Don't print an empty jsdoc
-      if (!jsdocAsString.equals("/** */ ")) {
-        add(jsdocAsString);
-        if (!node.isCast()) {
-          cc.endLine();
-        }
-      }
+    if (printComments) {
+      printLeadingCommentsInOrder(node);
     }
-
-    // print any non-trailing non-JSDoc comment attached to this node
-    if (printNonJSDocComments) {
-      NonJSDocComment nonJSDocComment = node.getNonJSDocComment();
-      if (nonJSDocComment != null && !nonJSDocComment.isTrailing()) {
-        String nonJSDocCommentString = node.getNonJSDocCommentString();
-        if (!nonJSDocCommentString.isEmpty()) {
-          addNonJsDoc_nonTrailing(node, nonJSDocComment);
-        }
-      }
-    }
+    cc.trackLicenses(node);
 
     Token type = node.getToken();
     String opstr = NodeUtil.opToStr(type);
@@ -223,7 +297,7 @@ public class CodeGenerator {
 
         // Must have a ';' after a throw statement, otherwise safari can't
         // parse this.
-        cc.endStatement(true);
+        cc.endStatement(/*needSemiColon=*/ true, hasTrailingCommentOnSameLine(node));
         break;
 
       case RETURN:
@@ -240,14 +314,14 @@ public class CodeGenerator {
         } else {
           checkState(childCount == 0, node);
         }
-        cc.endStatement();
+        cc.endStatement(hasTrailingCommentOnSameLine(node));
         break;
 
       case VAR:
         add("var ");
         addList(first, false, getContextForNoInOperator(context), ",");
         if (node.getParent() == null || NodeUtil.isStatement(node)) {
-          cc.endStatement();
+          cc.endStatement(hasTrailingCommentOnSameLine(node));
         }
         break;
 
@@ -255,7 +329,7 @@ public class CodeGenerator {
         add("const ");
         addList(first, false, getContextForNoInOperator(context), ",");
         if (node.getParent() == null || NodeUtil.isStatement(node)) {
-          cc.endStatement();
+          cc.endStatement(hasTrailingCommentOnSameLine(node));
         }
         break;
 
@@ -263,7 +337,7 @@ public class CodeGenerator {
         add("let ");
         addList(first, false, getContextForNoInOperator(context), ",");
         if (node.getParent() == null || NodeUtil.isStatement(node)) {
-          cc.endStatement();
+          cc.endStatement(hasTrailingCommentOnSameLine(node));
         }
         break;
 
@@ -315,7 +389,7 @@ public class CodeGenerator {
         if (node.getParent().isArrowFunction()
             && node.hasOneChild()
             && first.isName()
-            && !outputFeatureSet.has(Feature.TYPE_ANNOTATION)) {
+            && !gentsMode) {
           add(first);
         } else {
           add("(");
@@ -451,7 +525,7 @@ public class CodeGenerator {
           add("from");
         }
         add(last);
-        cc.endStatement();
+        cc.endStatement(hasTrailingCommentOnSameLine(node));
         break;
 
       case EXPORT_SPECS:
@@ -514,7 +588,9 @@ public class CodeGenerator {
 
           if (!superClass.isEmpty()) {
             add("extends");
-            add(superClass);
+
+            // Parentheses are required for a comma expression
+            addExpr(superClass, 1, Context.OTHER);
           }
 
           Node interfaces = (Node) node.getProp(Node.IMPLEMENTS);
@@ -622,7 +698,7 @@ public class CodeGenerator {
             Node body = fn.getLastChild();
 
             // Add the property name.
-            if (!node.isQuotedString()
+            if (!node.isQuotedStringKey()
                 && TokenStream.isJSIdentifier(name)
                 &&
                 // do not encode literally any non-literal characters that were
@@ -686,6 +762,12 @@ public class CodeGenerator {
         {
           if (node.getClass() != Node.class) {
             throw new Error("Unexpected Node subclass.");
+          }
+          if (node.hasParent()) {
+            boolean staticBlock = node.isBlock() && node.getParent().isClassMembers();
+            if (staticBlock) {
+              add("static");
+            }
           }
           boolean preserveBlock = node.isBlock() && !node.isSyntheticBlock();
           if (preserveBlock) {
@@ -790,7 +872,7 @@ public class CodeGenerator {
         add("(");
         add(last);
         add(")");
-        cc.endStatement();
+        cc.endStatement(hasTrailingCommentOnSameLine(node));
         break;
 
       case WHILE:
@@ -825,8 +907,7 @@ public class CodeGenerator {
             // The ScopedAliases pass will convert variable assignments and function declarations
             // to assignments to GETPROP nodes, like $jscomp.scope.SOME_VAR = 3;. This attempts to
             // rewrite it back to the original code.
-            if (node.getFirstChild().matchesQualifiedName("$jscomp.scope")
-                && node.getParent().isAssign()) {
+            if (JSCOMP_SCOPE.matches(node.getFirstChild()) && node.getParent().isAssign()) {
               add("var ");
             }
             addGetpropIdentifier(node);
@@ -1042,13 +1123,13 @@ public class CodeGenerator {
           add(" ");
           add(first);
         }
-        cc.endStatement();
+        cc.endStatement(hasTrailingCommentOnSameLine(node));
         break;
 
       case DEBUGGER:
         Preconditions.checkState(childCount == 0, node);
         add("debugger");
-        cc.endStatement();
+        cc.endStatement(hasTrailingCommentOnSameLine(node));
         break;
 
       case BREAK:
@@ -1061,13 +1142,13 @@ public class CodeGenerator {
           add(" ");
           add(first);
         }
-        cc.endStatement();
+        cc.endStatement(hasTrailingCommentOnSameLine(node));
         break;
 
       case EXPR_RESULT:
         Preconditions.checkState(childCount == 1, node);
         add(first, Context.START_OF_EXPR);
-        cc.endStatement();
+        cc.endStatement(hasTrailingCommentOnSameLine(node));
         break;
 
       case NEW:
@@ -1085,6 +1166,7 @@ public class CodeGenerator {
         // to force parentheses. Otherwise, when parsed, NEW will bind to the
         // first viable parentheses (don't traverse into functions).
         // Also, NEW requires parentheses around an optional chain callee.
+        // If the first child is an arrow function, then parentheses is needed
         if (NodeUtil.has(first, Node::isCall, NodeUtil.MATCH_NOT_FUNCTION)
             || NodeUtil.isOptChainNode(first)) {
           precedence = NodeUtil.precedence(first.getToken()) + 1;
@@ -1098,7 +1180,7 @@ public class CodeGenerator {
           addList(next);
           add(")");
         } else {
-          if (cc.shouldPreserveExtras()) {
+          if (cc.shouldPreserveExtras(node)) {
             add("(");
             add(")");
           }
@@ -1379,7 +1461,7 @@ public class CodeGenerator {
         add(node.getString());
         cc.addOp("=", true);
         add(last);
-        cc.endStatement(true);
+        cc.endStatement(/* needSemiColon= */ true, hasTrailingCommentOnSameLine(node));
         break;
       case DECLARE:
         add("declare");
@@ -1391,7 +1473,7 @@ public class CodeGenerator {
         add(first);
         add("]");
         maybeAddTypeDecl(node);
-        cc.endStatement(true);
+        cc.endStatement(/* needSemiColon= */ true, hasTrailingCommentOnSameLine(node));
         break;
       case CALL_SIGNATURE:
         if (node.getBooleanProp(Node.CONSTRUCT_SIGNATURE)) {
@@ -1400,22 +1482,12 @@ public class CodeGenerator {
         maybeAddGenericTypes(node);
         add(first);
         maybeAddTypeDecl(node);
-        cc.endStatement(true);
+        cc.endStatement(/* needSemiColon= */ true, hasTrailingCommentOnSameLine(node));
         break;
       default:
         throw new IllegalStateException("Unknown token " + type + "\n" + node.toStringTree());
     }
-
-    // print any trailing nonJSDoc comment attached to this node
-    if (printNonJSDocComments) {
-      NonJSDocComment nonJSDocComment = node.getNonJSDocComment();
-      if (nonJSDocComment != null && nonJSDocComment.isTrailing()) {
-        String nonJSDocCommentString = node.getNonJSDocCommentString();
-        if (!nonJSDocCommentString.isEmpty()) {
-          addNonJsDoctrailing(nonJSDocComment);
-        }
-      }
-    }
+    printTrailingComment(node);
 
     cc.endSourceMapping(node);
   }
@@ -1495,13 +1567,21 @@ public class CodeGenerator {
         || NodeUtil.isUnaryOperator(parent)
         || NodeUtil.isUpdateOperator(parent)
         || parent.isTaggedTemplateLit()
-        || parent.isGetProp()) {
+        || parent.isGetProp()
+        || parent.isOptChainGetProp()
+        || parent.isAwait()
+        || parent.isYield()) {
       // LeftHandSideExpression OP LeftHandSideExpression
       // OP LeftHandSideExpression | LeftHandSideExpression OP
       // MemberExpression TemplateLiteral
       // MemberExpression '.' IdentifierName
       return true;
-    } else if (parent.isGetElem() || parent.isCall() || parent.isHook()) {
+    } else if (parent.isGetElem()
+        || parent.isCall()
+        || parent.isHook()
+        || parent.isOptChainGetElem()
+        || parent.isOptChainCall()
+        || parent.isNew()) {
       // MemberExpression '[' Expression ']'
       // MemberFunction '(' AssignmentExpressionList ')'
       // LeftHandSideExpression ? AssignmentExpression : AssignmentExpression
@@ -1520,7 +1600,7 @@ public class CodeGenerator {
 
   private void addArrowFunction(Node n, Node first, Node last, Context context) {
     checkState(first.getString().isEmpty(), first);
-    boolean funcNeedsParens = arrowFunctionNeedsParens(n);
+    boolean funcNeedsParens = arrowFunctionNeedsParens(n) || n.getMarkForParenthesize();
     if (funcNeedsParens) {
       add("(");
     }
@@ -1550,7 +1630,7 @@ public class CodeGenerator {
   }
 
   private void addFunction(Node n, Node first, Node last, Context context) {
-    boolean funcNeedsParens = (context == Context.START_OF_EXPR);
+    boolean funcNeedsParens = (context == Context.START_OF_EXPR || n.getMarkForParenthesize());
     if (funcNeedsParens) {
       add("(");
     }
@@ -1662,7 +1742,9 @@ public class CodeGenerator {
     return Double.NaN;
   }
 
-  /** @return Whether the name is an indirect eval. */
+  /**
+   * @return Whether the name is an indirect eval.
+   */
   private static boolean isIndirectEval(Node n) {
     return n.isName() && "eval".equals(n.getString()) && !n.getBooleanProp(Node.DIRECT_EVAL);
   }
@@ -1686,11 +1768,13 @@ public class CodeGenerator {
     if (n.isBlock()) {
       int count = getNonEmptyChildCount(n, 2);
       if (count == 0) {
-        if (cc.shouldPreserveExtras()) {
+        if (cc.shouldPreserveExtras(n)) {
           cc.beginBlock();
+          printTrailingComment(n);
           cc.endBlock(cc.breakAfterBlockFor(n, context == Context.STATEMENT));
         } else {
-          cc.endStatement(true);
+          printTrailingComment(n);
+          cc.endStatement(/* needSemiColon= */ true, /*hasTrailingCommentOnSameLine=*/ false);
         }
         return;
       }
@@ -1700,10 +1784,11 @@ public class CodeGenerator {
         // 'let', 'const', etc are not allowed by themselves in "if" and other
         // structures. Also, hack around a IE6/7 browser bug that needs a block around DOs.
         Node firstAndOnlyChild = getFirstNonEmptyChild(n);
-        boolean alwaysWrapInBlock = cc.shouldPreserveExtras();
+        boolean alwaysWrapInBlock = cc.shouldPreserveExtras(n);
         if (alwaysWrapInBlock || isBlockDeclOrDo(firstAndOnlyChild)) {
           cc.beginBlock();
           add(firstAndOnlyChild, Context.STATEMENT);
+          printTrailingComment(n);
           cc.maybeLineBreak();
           cc.endBlock(cc.breakAfterBlockFor(n, context == Context.STATEMENT));
           return;
@@ -1715,9 +1800,11 @@ public class CodeGenerator {
     }
 
     if (nodeToProcess.isEmpty()) {
-      cc.endStatement(true);
+      printTrailingComment(n);
+      cc.endStatement(/* needSemiColon= */ true, /*hasTrailingCommentOnSameLine=*/ false);
     } else {
       add(nodeToProcess, context);
+      printTrailingComment(n);
     }
   }
 
@@ -1799,7 +1886,7 @@ public class CodeGenerator {
 
   private boolean isFirstOperandOfExponentiationExpression(Node n) {
     Node parent = n.getParent();
-    return parent != null && parent.getToken() == Token.EXPONENT && parent.getFirstChild() == n;
+    return parent != null && parent.isExponent() && parent.getFirstChild() == n;
   }
 
   void addList(Node firstInList) {
@@ -1834,7 +1921,7 @@ public class CodeGenerator {
     String key = n.getString();
     // Object literal property names don't have to be quoted if they are not JavaScript keywords.
     boolean mustBeQuoted =
-        n.isQuotedString()
+        n.isQuotedStringKey()
             || (quoteKeywordProperties && TokenStream.isKeyword(key))
             || !TokenStream.isJSIdentifier(key)
             // do not encode literally any non-literal characters that were Unicode escaped.
@@ -1927,7 +2014,7 @@ public class CodeGenerator {
     if (nonJSDocComment.isEndingAsLineComment()) {
       // Non trailing line comments can not be on the same line as the node.
       checkState(
-          commentEndPosition.line < nodeLineNumber,
+          gentsMode || commentEndPosition.line < nodeLineNumber,
           "Non trailing line comments can not be on the same line as the node.");
       add(content + "\n");
     } else {
@@ -1945,36 +2032,34 @@ public class CodeGenerator {
     }
   }
 
-  private void addNonJsDoctrailing(NonJSDocComment nonJSDocComment) {
+  private void addNonJsDoctrailing(NonJSDocComment nonJSDocComment, boolean sameLine) {
     String content = nonJSDocComment.getCommentString();
     if (nonJSDocComment.isEndingAsLineComment()) {
       // Trailing line comments *must* end with a `\n`. E.g.. `let x; //comment\n`
-      add(" " + content + "\n");
+      add(" " + content);
+      if (sameLine) {
+        cc.startNewLine();
+      }
     } else {
       if (nonJSDocComment.isInline()) {
         // e.g. `foo(x /*comment*/);` is inline
         add(" " + content);
       } else {
         // e.g. `let x; /*comment*/` is non-inline
-        add(" " + content + "\n");
+        add(" " + content);
+        if (sameLine) {
+          cc.startNewLine();
+        }
       }
     }
   }
 
   /** Outputs a JS string, using the optimal (single/double) quote character */
   private void addJsString(Node n) {
-    String s = n.getString();
-    boolean useSlashV = n.getBooleanProp(Node.SLASH_V);
-    if (useSlashV) {
-      add(jsString(n.getString(), useSlashV));
-    } else {
-      String cached =
-          escapedJsStrings.computeIfAbsent(s, (String k) -> jsString(n.getString(), useSlashV));
-      add(cached);
-    }
+    add(jsString(n.getString()));
   }
 
-  private String jsString(String s, boolean useSlashV) {
+  private String jsString(String s) {
     int singleq = 0;
     int doubleq = 0;
 
@@ -2006,14 +2091,12 @@ public class CodeGenerator {
       singlequote = "\'";
     }
 
-    return quote
-        + strEscape(s, doublequote, singlequote, "`", "\\\\", "$", useSlashV, false)
-        + quote;
+    return quote + strEscape(s, doublequote, singlequote, "`", "\\\\", "$", false) + quote;
   }
 
   /** Escapes regular expression */
   String regexpEscape(String s) {
-    return '/' + strEscape(s, "\"", "'", "`", "\\", "$", false, true) + '/';
+    return '/' + strEscape(s, "\"", "'", "`", "\\", "$", true) + '/';
   }
 
   /** Helper to escape JavaScript string as well as regular expression */
@@ -2024,7 +2107,6 @@ public class CodeGenerator {
       String backtickEscape,
       String backslashEscape,
       String dollarEscape,
-      boolean useSlashV,
       boolean isRegexp) {
     StringBuilder sb = new StringBuilder(s.length() + 2);
     for (int i = 0; i < s.length(); i++) {
@@ -2034,7 +2116,7 @@ public class CodeGenerator {
           sb.append("\\x00");
           break;
         case '\u000B':
-          if (useSlashV) {
+          if (!isRegexp) {
             sb.append("\\v");
           } else {
             sb.append("\\x0B");
@@ -2250,7 +2332,7 @@ public class CodeGenerator {
   }
 
   /** Gets the first non-empty child of the given node. */
-  private static Node getFirstNonEmptyChild(Node n) {
+  private static @Nullable Node getFirstNonEmptyChild(Node n) {
     for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {
       if (c.isBlock()) {
         Node result = getFirstNonEmptyChild(c);
@@ -2276,20 +2358,17 @@ public class CodeGenerator {
     // expression can't contain an in operator.  Pass this context flag down
     // until we reach expressions which no longer have the limitation.
     IN_FOR_INIT_CLAUSE(
-        /** inForInitClause */
-        true,
+        /* inForInitClause= */ true,
         /** at start of arrow fn */
         false),
     // Handle object literals at the start of a non-block arrow function body.
     // This is only important when the first token after the "=>" is "{".
     START_OF_ARROW_FN_BODY(
-        /** inForInitClause */
-        false,
+        /* inForInitClause= */ false,
         /** at start of arrow fn */
         true),
     START_OF_ARROW_FN_IN_FOR_INIT(
-        /** inForInitClause */
-        true,
+        /* inForInitClause= */ true,
         /** atArrowFunctionBody */
         true),
     OTHER; // nothing special to watch out for.
@@ -2351,7 +2430,7 @@ public class CodeGenerator {
         break;
       case FUNCTION:
         if (n.getLastChild().isEmpty()) {
-          cc.endStatement(true);
+          cc.endStatement(/* needSemiColon= */ true, /*hasTrailingCommentOnSameLine=*/ false);
         } else {
           cc.endFunction(context == Context.STATEMENT);
         }
@@ -2363,28 +2442,28 @@ public class CodeGenerator {
         break;
       case EXPORT:
         if (n.getParent().getToken() != Token.NAMESPACE_ELEMENTS
-            && n.getFirstChild().getToken() != Token.DECLARE) {
+            && !n.getFirstChild().isDeclare()) {
           processEnd(n.getFirstChild(), context);
         }
         break;
       case COMPUTED_PROP:
         if (n.hasOneChild()) {
-          cc.endStatement(true);
+          cc.endStatement(/* needSemiColon= */ true, /*hasTrailingCommentOnSameLine=*/ false);
         }
         break;
       case MEMBER_FUNCTION_DEF:
       case GETTER_DEF:
       case SETTER_DEF:
         if (n.getFirstChild().getLastChild().isEmpty()) {
-          cc.endStatement(true);
+          cc.endStatement(/* needSemiColon= */ true, /*hasTrailingCommentOnSameLine=*/ false);
         }
         break;
       case MEMBER_VARIABLE_DEF:
-        cc.endStatement(true);
+        cc.endStatement(/* needSemiColon= */ true, /*hasTrailingCommentOnSameLine=*/ false);
         break;
       default:
         if (context == Context.STATEMENT) {
-          cc.endStatement();
+          cc.endStatement(/*hasTrailingCommentOnSameLine=*/ false);
         }
     }
   }

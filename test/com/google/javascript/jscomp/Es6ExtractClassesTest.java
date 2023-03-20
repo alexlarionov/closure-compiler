@@ -16,7 +16,6 @@
 
 package com.google.javascript.jscomp;
 
-import static com.google.javascript.jscomp.Es6ToEs3Util.CANNOT_CONVERT;
 
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import org.junit.Before;
@@ -43,6 +42,7 @@ public final class Es6ExtractClassesTest extends CompilerTestCase {
     enableRewriteClosureCode();
     enableTypeCheck();
     replaceTypesWithColors();
+    enableMultistageCompilation();
   }
 
   @Test
@@ -255,15 +255,110 @@ public final class Es6ExtractClassesTest extends CompilerTestCase {
   }
 
   @Test
-  public void testCannotExtract() {
-    testError("let x; while(x = class A{}) {use(x);}", CANNOT_CONVERT);
+  public void testNormalisedArrowFunction() {
+    test(
+        "(() => { return class A {};})();",
+        "(() => { const testcode$classdecl$var0 = class {}; return testcode$classdecl$var0;})()");
 
-    testError(
+    test(
+        "function foo(x = () => {return class A {}; }) {} use(foo());",
+        lines(
+            "function foo(", //
+            "  x = () => {",
+            "    const testcode$classdecl$var0 = class {}; ",
+            "    return testcode$classdecl$var0;",
+            "  })",
+            " {}",
+            "use(foo());"));
+  }
+
+  // Tests that class that is a default parameter value are converted into normalized arrow
+  // functions and successfully extracted
+  @Test
+  public void testClassAsDefaultParamValue() {
+    test(
+        lines("function foo(x = class A {}) {} ", "use(foo());"),
+        lines(
+            "function foo(x = ",
+            "  (() => { const testcode$classdecl$var0 = class {}; ",
+            "           return testcode$classdecl$var0;",
+            "         }",
+            "  )()) {}",
+            "use(foo());"));
+  }
+
+  @Test
+  public void classExtractedInUnnormalizedArrows() {
+    test(
+        lines(
+            "goog.module('some');", //
+            "exports.some = ((c) =>  class extends c{});"),
+        lines(
+            "/** @const */ var module$exports$some = {}; ",
+            "/** @const */ module$exports$some.some = c => {",
+            "  const testcode$classdecl$var0 = class extends c {};",
+            "  return testcode$classdecl$var0;",
+            "};"));
+  }
+
+  @Test
+  public void classExtractedInUnnormalizedArrowsNested() {
+    test(
+        lines(
+            "goog.module('some');", //
+            "exports.some = ((outer) => ((c) =>  class extends c{}));"),
+        lines(
+            "/** @const */ var module$exports$some = {}; ",
+            "/** @const */ module$exports$some.some = outer => {",
+            "  return c => {",
+            "    const testcode$classdecl$var0 = class extends c {};",
+            "    return testcode$classdecl$var0;",
+            "  };",
+            "};"));
+  }
+
+  @Test
+  public void classExtractedInNormalizedArrowNested() {
+    test(
+        lines(
+            "goog.module('some');",
+            "exports.some = ((outer) => {",
+            "  ((c) => { return class extends c{}}",
+            ")});"),
+        lines(
+            "/** @const */ var module$exports$some = {}; ",
+            "/** @const */ module$exports$some.some = outer => {",
+            "c => {",
+            "  const testcode$classdecl$var0 = class extends c {};",
+            "  return testcode$classdecl$var0;",
+            "  };",
+            "};"));
+  }
+
+  @Test
+  public void testCannotExtract() {
+    test(
+        "let x; while(x = class A{}) {use(x);}",
+        lines(
+            "let x;",
+            "while(x = (() => { const testcode$classdecl$var0 = class {}; return"
+                + " testcode$classdecl$var0;})()) ",
+            "{use(x);}"));
+
+    test(
         lines(
             "/** @type {number} */ var x = 0;",
             "function f(x, y) {}",
-            "while(f(x = 2, class Foo { [x=3]() {} })){}"),
-        CANNOT_CONVERT);
+            "while(f(x = 2, class Foo { bar() {} })){}"),
+        lines(
+            "var x = 0;",
+            "function f(x, y) {}",
+            "while(",
+            "  f(x = 2, ",
+            "    (() => { const testcode$classdecl$var0 = class { bar() {} };",
+            "          return testcode$classdecl$var0;",
+            "         })()",
+            ")){}"));
   }
 
   @Test

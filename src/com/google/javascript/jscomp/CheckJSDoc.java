@@ -27,7 +27,7 @@ import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import java.util.Set;
 import java.util.regex.Pattern;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /** Checks for misplaced, misused or deprecated JSDoc annotations. */
 final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass {
@@ -35,7 +35,7 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
   public static final DiagnosticType MISPLACED_MSG_ANNOTATION =
       DiagnosticType.disabled(
           "JSC_MISPLACED_MSG_ANNOTATION",
-          "Misplaced message annotation. @desc, @hidden, @meaning, and @alternateMessageId"
+          "Misplaced message annotation. @desc, @meaning, and @alternateMessageId"
               + " annotations should be only on message nodes."
               + "\nMessage constants must be prefixed with 'MSG_'.");
 
@@ -57,7 +57,7 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
 
   static final DiagnosticType BAD_REST_PARAMETER_ANNOTATION =
       DiagnosticType.warning(
-          "BAD_REST_PARAMETER_ANNOTATION",
+          "JSC_BAD_REST_PARAMETER_ANNOTATION",
           "Missing \"...\" in type annotation for rest parameter.");
 
   static final DiagnosticType DEFAULT_PARAM_MUST_BE_MARKED_OPTIONAL = DiagnosticType.error(
@@ -158,17 +158,7 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
     validateImplicitCast(n, info);
     validateClosurePrimitive(n, info);
     validateReturnJsDoc(n, info);
-    validateLocaleFile(n, info);
-  }
-
-  private void validateLocaleFile(Node n, JSDocInfo info) {
-    if (info == null || !info.isLocaleFile()) {
-      return;
-    }
-
-    if (!n.isScript()) {
-      reportMisplaced(n, "localeFile", "localeFile must be in the fileoverview");
-    }
+    validateTsType(n, info);
   }
 
   private void validateSuppress(Node n, JSDocInfo info) {
@@ -202,34 +192,6 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
         }
         break;
 
-      case ASSIGN:
-      case ASSIGN_BITOR:
-      case ASSIGN_BITXOR:
-      case ASSIGN_BITAND:
-      case ASSIGN_LSH:
-      case ASSIGN_RSH:
-      case ASSIGN_URSH:
-      case ASSIGN_ADD:
-      case ASSIGN_SUB:
-      case ASSIGN_MUL:
-      case ASSIGN_DIV:
-      case ASSIGN_MOD:
-      case ASSIGN_EXPONENT:
-      case GETPROP:
-        if (n.getParent().isExprResult()) {
-          return;
-        }
-        break;
-
-      case CALL:
-        // TODO(blickly): Stop ignoring no-op extraProvide suppression.
-        // We don't actually support extraProvide, but if we did, it would go on a CALL.
-        if (containsOnlySuppressionFor(info, "extraRequire")
-            || containsOnlySuppressionFor(info, "extraProvide")) {
-          return;
-        }
-        break;
-
       case WITH:
         if (containsOnlySuppressionFor(info, "with")) {
           return;
@@ -240,6 +202,9 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
         break;
     }
     if (containsOnlySuppressionFor(info, "missingRequire")) {
+      return;
+    }
+    if (n.getParent().isExprResult()) {
       return;
     }
     compiler.report(JSError.make(n, MISPLACED_SUPPRESS));
@@ -300,8 +265,7 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
    * @return The function node associated with the function declaration associated with the
    *     specified node, no null if no such function exists.
    */
-  @Nullable
-  private static Node getFunctionDecl(Node n) {
+  private static @Nullable Node getFunctionDecl(Node n) {
     if (n.isFunction()) {
       return n;
     }
@@ -525,7 +489,7 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
   }
 
   /**
-   * Checks that annotations for messages ({@code @desc}, {@code @hidden}, {@code @meaning} and
+   * Checks that annotations for messages ({@code @desc}, {@code @meaning} and
    * {@code @alternateMessageId}) are in the proper place, namely on names starting with MSG_ which
    * indicates they should be extracted for translation. A later pass checks that the right side is
    * a call to goog.getMsg.
@@ -535,10 +499,13 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
       return;
     }
 
-    if (info.getDescription() != null
-        || info.isHidden()
-        || info.getMeaning() != null
-        || info.getAlternateMessageId() != null) {
+    boolean hasNonDescMsgTag =
+        info.isHidden() || info.getMeaning() != null || info.getAlternateMessageId() != null;
+
+    if (hasNonDescMsgTag
+        // Don't error on TS gencode using @desc on a non-message. There's a lot of code that
+        // uses @desc as a general purpose "@desc" tag
+        || (info.getDescription() != null && !isFromTs(n))) {
       boolean descOkay = false;
       switch (n.getToken()) {
         case ASSIGN:
@@ -732,11 +699,9 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
     }
   }
 
-  /**
-   * Check that @nosideeeffects annotations are only present in externs.
-   */
+  /** Check that @modifies annotations are only present in externs. */
   private void validateNoSideEffects(Node n, JSDocInfo info) {
-    // Cannot have @modifies or @nosideeffects in regular (non externs) js. Report errors.
+    // Cannot have @modifies in regular (non externs) js. Report errors.
     if (info == null) {
       return;
     }
@@ -747,9 +712,6 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
 
     if (info.hasSideEffectsArgumentsAnnotation() || info.modifiesThis()) {
       report(n, INVALID_MODIFIES_ANNOTATION);
-    }
-    if (info.isNoSideEffects()) {
-      report(n, INVALID_NO_SIDE_EFFECT_ANNOTATION);
     }
   }
 
@@ -789,5 +751,20 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
     if (info.containsDeclaration() && !info.hasType() && !info.hasTypedefType()) {
       report(n, JSDOC_ON_RETURN);
     }
+  }
+
+  /** Checks that a @tsType is on a function in a supported file */
+  private void validateTsType(Node n, JSDocInfo info) {
+    if (info == null || info.getTsTypes().isEmpty()) {
+      return;
+    }
+
+    if (!isJSDocOnFunctionNode(n, info)) {
+      report(n, MISPLACED_ANNOTATION, "tsType", "must be on a function node");
+    }
+  }
+
+  private static boolean isFromTs(Node n) {
+    return n.getSourceFileName().endsWith(".closure.js");
   }
 }

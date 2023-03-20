@@ -25,7 +25,7 @@ import com.google.javascript.rhino.Node;
  * least one of the declarations is a destructuring declaration. For example
  *
  * <pre>
- *   var [a, b] = foo(), c = bar();}
+ *   var [a, b] = foo(), c = bar();
  * </pre>
  *
  * becomes
@@ -72,7 +72,7 @@ public final class Es6SplitVariableDeclarations extends NodeTraversal.AbstractPo
       } else {
         t.report(
             n,
-            Es6ToEs3Util.CANNOT_CONVERT_YET,
+            TranspilationUtil.CANNOT_CONVERT_YET,
             "declaration with multiple destructuring children not in statement block");
         return;
       }

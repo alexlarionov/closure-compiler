@@ -17,18 +17,22 @@ package com.google.javascript.jscomp;
 
 import static com.google.common.base.Preconditions.checkState;
 
-import com.google.javascript.jscomp.NodeTraversal.Callback;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.LinkedHashMultimap;
+import com.google.common.collect.SetMultimap;
+import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
-import java.util.Collection;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import org.jspecify.nullness.Nullable;
 
 /**
- * Inlines methods that take no arguments and have only a return statement
- * returning a property. Because it works on method names rather than type
- * inference, a method with multiple definitions will be inlined if each
- * definition is identical.
+ * Inlines methods that take no arguments and have only a return statement returning a property.
+ * Because it works on method names rather than type inference, a method with multiple definitions
+ * will be inlined if each definition is identical.
  *
  * <pre>
  * A.prototype.foo = function() { return this.b; }
@@ -44,16 +48,27 @@ import java.util.logging.Logger;
  *
  * will not.
  *
- * Declarations are not removed because we do not find all possible
- * call sites. For examples, calls of the form foo["bar"] are not
- * detected.
+ * <p>Declarations are not removed because we do not find all possible call sites. For examples,
+ * calls of the form foo["bar"] are not detected.
  *
- * This pass is not on by default because it is not safe in simple mode.
- * If the prototype method is mutated and we don't detect that, inlining it is
- * unsafe.
- * We enable it whenever function inlining is enabled.
+ * <p>This pass is not on by default because it is not safe in simple mode. If the prototype method
+ * is mutated and we don't detect that, inlining it is unsafe. We enable it whenever function
+ * inlining is enabled.
  */
-class InlineSimpleMethods extends MethodCompilerPass {
+class InlineSimpleMethods implements CompilerPass {
+
+  /** List of methods defined in externs */
+  final ImmutableSet<String> externProperties;
+
+  /** List of property names that may not be methods */
+  final Set<String> nonMethodProperties = new HashSet<>();
+
+  // Use a linked map here to keep the output deterministic.  Otherwise,
+  // the choice of method bodies is random when multiple identical definitions
+  // are found which causes problems in the source maps.
+  final SetMultimap<String, Node> methodDefinitions = LinkedHashMultimap.create();
+
+  private final AbstractCompiler compiler;
 
   private static final Logger logger =
       Logger.getLogger(InlineSimpleMethods.class.getName());
@@ -61,14 +76,19 @@ class InlineSimpleMethods extends MethodCompilerPass {
   private final AstAnalyzer astAnalyzer;
 
   InlineSimpleMethods(AbstractCompiler compiler) {
-    super(compiler);
+    this.compiler = compiler;
     astAnalyzer = compiler.getAstAnalyzer();
+    externProperties = compiler.getExternProperties();
   }
 
   @Override
   public void process(Node externs, Node root) {
     checkState(compiler.getLifeCycleStage().isNormalized(), compiler.getLifeCycleStage());
-    super.process(externs, root);
+    checkState(methodDefinitions.isEmpty());
+    checkState(externs != null);
+
+    NodeTraversal.traverseRoots(compiler, new GatherSignatures(), externs, root);
+    NodeTraversal.traverseRoots(compiler, new InlineTrivialAccessors(), externs, root);
   }
 
   /**
@@ -79,11 +99,11 @@ class InlineSimpleMethods extends MethodCompilerPass {
 
     @Override
     void visit(NodeTraversal t, Node callNode, Node parent, String callName) {
-      if (externMethods.contains(callName) || nonMethodProperties.contains(callName)) {
+      if (externProperties.contains(callName) || nonMethodProperties.contains(callName)) {
         return;
       }
 
-      Collection<Node> definitions = methodDefinitions.get(callName);
+      Set<Node> definitions = methodDefinitions.get(callName);
       if (definitions == null || definitions.isEmpty()) {
         return;
       }
@@ -94,8 +114,8 @@ class InlineSimpleMethods extends MethodCompilerPass {
 
       // Check any multiple definitions
       if (definitions.size() == 1 || allDefinitionsEquivalent(definitions)) {
-
-        if (!argsMayHaveSideEffects(callNode)) {
+        // Do not inline if the callsite is a derived class calling a base method using `super.`
+        if (!argsMayHaveSideEffects(callNode) && !NodeUtil.referencesSuper(callNode)) {
           // Verify this is a trivial return
           Node returned = returnedExpression(firstDefinition);
           if (returned != null) {
@@ -127,11 +147,6 @@ class InlineSimpleMethods extends MethodCompilerPass {
     }
   }
 
-  @Override
-  Callback getActingCallback() {
-    return new InlineTrivialAccessors();
-  }
-
   /**
    * Returns true if the provided node is a getprop for
    * which the left child is this or a valid property tree
@@ -160,10 +175,9 @@ class InlineSimpleMethods extends MethodCompilerPass {
   }
 
   /**
-   * Return the node that represents the expression returned
-   * by the method, given a FUNCTION node.
+   * Return the node that represents the expression returned by the method, given a FUNCTION node.
    */
-  private static Node returnedExpression(Node fn) {
+  private static @Nullable Node returnedExpression(Node fn) {
     Node expectedBlock = NodeUtil.getFunctionBody(fn);
     if (!expectedBlock.hasOneChild()) {
       return null;
@@ -192,7 +206,7 @@ class InlineSimpleMethods extends MethodCompilerPass {
   }
 
   /** Given a set of method definitions, verify they are the same. */
-  private boolean allDefinitionsEquivalent(Collection<Node> definitions) {
+  private boolean allDefinitionsEquivalent(Set<Node> definitions) {
     Node first = null;
     for (Node n : definitions) {
       if (first == null) {
@@ -261,26 +275,122 @@ class InlineSimpleMethods extends MethodCompilerPass {
   }
 
   /**
-   * A do-nothing signature store.
+   * Adds a node that may represent a function signature (if it's a function itself or the name of a
+   * function).
    */
-  static final MethodCompilerPass.SignatureStore DUMMY_SIGNATURE_STORE =
-      new MethodCompilerPass.SignatureStore() {
-        @Override
-        public void addSignature(
-            String functionName, Node functionNode, String sourceFile) {
-        }
+  private void addPossibleSignature(String name, Node node) {
+    if (node != null && node.isFunction()) {
+      // The node we're looking at is a function, so we can add it directly
+      addSignature(name, node);
+    } else {
+      nonMethodProperties.add(name);
+    }
+  }
 
-        @Override
-        public void removeSignature(String functionName) {
-        }
+  private void addSignature(String name, Node function) {
+    if (externProperties.contains(name)) {
+      return;
+    }
 
-        @Override
-        public void reset() {
-        }
-      };
+    methodDefinitions.put(name, function);
+  }
 
-  @Override
-  SignatureStore getSignatureStore() {
-    return DUMMY_SIGNATURE_STORE;
+  /** Gather signatures from the source to be compiled. */
+  private class GatherSignatures extends AbstractPostOrderCallback {
+
+    @Override
+    public void visit(NodeTraversal t, Node n, Node parent) {
+      switch (n.getToken()) {
+          // TODO(b/251573710): Handle ES2015+ language features that can reference properties
+        case GETPROP:
+        case GETELEM:
+          String name = getPropName(n);
+          if (name == null) {
+            return;
+          }
+
+          if (name.equals("prototype")) {
+            processPrototypeParent(parent);
+          } else {
+            // Static methods of the form Foo.bar = function() {} or
+            // Static methods of the form Foo.bar = baz (where baz is a
+            // function name). Parse tree looks like:
+            // assign                 <- parent
+            //      getprop           <- n
+            //          name Foo
+            //          string bar
+            //      function or name  <- n.getNext()
+            if (parent.isAssign() && n.isFirstChildOf(parent)) {
+              addPossibleSignature(name, n.getNext());
+            }
+          }
+          break;
+
+        case OBJECTLIT:
+        case CLASS_MEMBERS:
+          for (Node key = n.getFirstChild(); key != null; key = key.getNext()) {
+            switch (key.getToken()) {
+              case MEMBER_FUNCTION_DEF:
+              case MEMBER_FIELD_DEF:
+              case STRING_KEY:
+                addPossibleSignature(key.getString(), key.getFirstChild());
+                break;
+              case SETTER_DEF:
+              case GETTER_DEF:
+                nonMethodProperties.add(key.getString());
+                break;
+              case COMPUTED_PROP: // complicated
+              case OBJECT_SPREAD:
+              case COMPUTED_FIELD_DEF:
+                break;
+              default:
+                throw new IllegalStateException("Unexpected " + n.getToken() + " key: " + key);
+            }
+          }
+          break;
+        default:
+          break;
+      }
+    }
+
+    /**
+     * Processes the parent of a GETPROP prototype, which can either be another GETPROP (in the case
+     * of Foo.prototype.bar), or can be an assignment (in the case of Foo.prototype = ...).
+     */
+    private void processPrototypeParent(Node n) {
+      switch (n.getToken()) {
+          // Foo.prototype.getBar = function() { ... } or
+          // Foo.prototype.getBar = getBaz (where getBaz is a function)
+          // parse tree looks like:
+          // assign                          <- parent
+          //     getprop                     <- n
+          //         getprop
+          //             name Foo
+          //             string prototype
+          //         string getBar
+          //     function or name            <- assignee
+        case GETPROP:
+        case GETELEM:
+          Node grandparent = n.getGrandparent();
+          String name = getPropName(n);
+          if (name != null && grandparent.isAssign()) {
+            Node assignee = grandparent.getSecondChild();
+            addPossibleSignature(name, assignee);
+          }
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  private static @Nullable String getPropName(Node getPropElem) {
+    if (getPropElem.isGetProp()) {
+      return getPropElem.getString();
+    } else if (getPropElem.getSecondChild().isStringLit()) {
+      return getPropElem.getSecondChild().getString();
+    } else {
+      return null;
+    }
   }
 }

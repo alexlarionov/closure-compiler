@@ -21,11 +21,12 @@ import java.io.ByteArrayOutputStream;
 import java.util.List;
 
 /** CompilerTestCase utilities that can be super sourced out for GWT/J2CL implementation. */
-public class CompilerTestCaseUtils {
+public final class CompilerTestCaseUtils {
   @GwtIncompatible
   public static Compiler multistageSerializeAndDeserialize(
       CompilerTestCase testCase,
       Compiler compiler,
+      List<SourceFile> externs,
       List<SourceFile> inputs,
       CodeChangeHandler changeHandler) {
     new RemoveCastNodes(compiler).process(compiler.getExternsRoot(), compiler.getJsRoot());
@@ -38,7 +39,7 @@ public class CompilerTestCaseUtils {
       try (ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray())) {
         compiler = testCase.createCompiler();
         compiler.disableThreads();
-        compiler.init(testCase.externsInputs, inputs, testCase.getOptions());
+        compiler.init(externs, inputs, testCase.getOptions());
         compiler.restoreState(bais);
         compiler.setErrorManager(errorManager);
         compiler.addChangeHandler(changeHandler);
@@ -52,4 +53,6 @@ public class CompilerTestCaseUtils {
   @GwtIncompatible
   public static void setDebugLogDirectoryOn(CompilerOptions options) {
   }
+
+  private CompilerTestCaseUtils() {}
 }

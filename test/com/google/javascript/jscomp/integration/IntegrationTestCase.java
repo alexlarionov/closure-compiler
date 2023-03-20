@@ -40,6 +40,7 @@ import com.google.javascript.jscomp.testing.TestExternsBuilder;
 import com.google.javascript.rhino.Node;
 import java.util.ArrayList;
 import java.util.List;
+import org.jspecify.nullness.Nullable;
 import org.junit.Before;
 
 /** Framework for end-to-end test cases. */
@@ -117,20 +118,20 @@ abstract class IntegrationTestCase {
                       "/**",
                       " * @constructor",
                       " * @return {!TypeError}",
-                      " * @param {*=} opt_message",
-                      " * @param {*=} opt_file",
-                      " * @param {*=} opt_line",
+                      " * @param {*=} message",
+                      " * @param {*=} fileNameOrOptions",
+                      " * @param {*=} line",
                       " */",
-                      "function TypeError(opt_message, opt_file, opt_line) {}",
+                      "function TypeError(message, fileNameOrOptions, line) {}",
                       "/**",
                       " * @constructor",
-                      " * @param {*=} opt_message",
-                      " * @param {*=} opt_file",
-                      " * @param {*=} opt_line",
+                      " * @param {*=} message",
+                      " * @param {*=} fileNameOrOptions",
+                      " * @param {*=} line",
                       " * @return {!Error}",
                       " * @nosideeffects",
                       " */",
-                      "function Error(opt_message, opt_file, opt_line) {}",
+                      "function Error(message, fileNameOrOptions, line) {}",
                       "",
                       "/** @constructor */",
                       "var HTMLElement = function() {};",
@@ -140,7 +141,7 @@ abstract class IntegrationTestCase {
   protected List<SourceFile> externs = DEFAULT_EXTERNS;
 
   // The most recently used compiler.
-  protected Compiler lastCompiler;
+  protected @Nullable Compiler lastCompiler;
 
   protected boolean useNoninjectingCompiler = false;
 
@@ -239,7 +240,10 @@ abstract class IntegrationTestCase {
 
   /** Asserts that when compiling with the given compiler options, there is an error or warning. */
   protected void test(
-      CompilerOptions options, String[] original, String[] compiled, DiagnosticGroup warnings) {
+      CompilerOptions options,
+      String[] original,
+      String @Nullable [] compiled,
+      DiagnosticGroup warnings) {
     Compiler compiler = compile(options, original);
     checkUnexpectedErrorsOrWarnings(compiler, 1);
 
@@ -269,11 +273,9 @@ abstract class IntegrationTestCase {
     testParseError(options, original, null);
   }
 
-  /**
-   * Asserts that there is at least one parse error.
-   */
-  protected void testParseError(CompilerOptions options,
-      String original, String compiled) {
+  /** Asserts that there is at least one parse error. */
+  protected void testParseError(
+      CompilerOptions options, String original, @Nullable String compiled) {
     Compiler compiler = compile(options, original);
     for (JSError error : compiler.getErrors()) {
       if (!DiagnosticGroups.PARSING.matches(error)) {

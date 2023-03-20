@@ -123,6 +123,13 @@ public class InlineFunctionsTest extends CompilerTestCase {
   }
 
   @Test
+  public void testInline_optChain_1() {
+    // Empty function, no params.
+    test("(function(){}).call?.(this)", "void 0;");
+    test("(function(){})?.call(this)", "void 0;");
+  }
+
+  @Test
   public void testInlineEmptyFunction2() {
     // Empty function, params with no side-effects.
     test("function foo(){}\n foo(1, new Date, function(){});", "void 0;");
@@ -877,6 +884,21 @@ public class InlineFunctionsTest extends CompilerTestCase {
     test(
         lines("function foo(a) {", "  [a] = [1];", "}", "foo(2);"),
         lines("{", "  var a$jscomp$inline_0 = 2;", "  [a$jscomp$inline_0] = [1];", "}"));
+  }
+
+  @Test
+  public void testDestructuringAssignInFunction_withArrayPattern_doesNotCrash() {
+    test(
+        lines(
+            "var Di = I(() => {",
+            "  function zv() {",
+            "    JSCOMPILER_PRESERVE(e), [f] = CN();",
+            "  }",
+            "  function CN() {",
+            "    let t;",
+            "  }",
+            "});"),
+        "var Di = I(() => {});");
   }
 
   @Test

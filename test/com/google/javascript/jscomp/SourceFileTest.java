@@ -17,11 +17,13 @@
 package com.google.javascript.jscomp;
 
 import static com.google.common.truth.Truth.assertThat;
-import static com.google.javascript.rhino.testing.Asserts.assertThrows;
+import static com.google.common.truth.extensions.proto.ProtoTruth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.Iterables;
 import com.google.common.io.MoreFiles;
+import com.google.javascript.jscomp.serialization.SourceFileProto;
 import com.google.javascript.rhino.StaticSourceFile.SourceKind;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -85,41 +87,28 @@ public final class SourceFileTest {
         (code) -> serializeRoundTrip(SourceFile.fromCode("test.js", code, SourceKind.NON_CODE)));
   }
 
-  @Test
-  public void testLineOffset_serialization_noReloadingSource() {
-    testLineOffsetHelper(
-        (code) -> {
-          SourceFile inMemory = SourceFile.fromCode("test.js", code, SourceKind.NON_CODE);
-          assertThat(inMemory.getLineOfOffset(0)).isEqualTo(1); // Trigger line offset generation
-          SourceFile fakeOnDisk =
-              SourceFile.builder()
-                  .withPath("fake_on_disk.js")
-                  .withKind(SourceKind.NON_CODE)
-                  .build();
-
-          fakeOnDisk.restoreFrom(inMemory);
-          assertThat(fakeOnDisk.getLineOfOffset(0)).isEqualTo(1);
-
-          return serializeRoundTrip(fakeOnDisk);
-        });
-  }
-
   private void testLineOffsetHelper(Function<String, SourceFile> factory) {
     SourceFile f0 = factory.apply("");
     assertThat(f0.getLineOfOffset(0)).isEqualTo(1);
     assertThat(f0.getColumnOfOffset(0)).isEqualTo(0);
     assertThat(f0.getLineOfOffset(10)).isEqualTo(1);
     assertThat(f0.getColumnOfOffset(10)).isEqualTo(10);
+    assertThat(f0.getNumBytes()).isEqualTo(0);
+    assertThat(f0.getNumLines()).isEqualTo(1);
 
     SourceFile f1 = factory.apply("'1';\n'2';\n'3'\n");
     assertThat(f1.getLineOffset(1)).isEqualTo(0);
     assertThat(f1.getLineOffset(2)).isEqualTo(5);
     assertThat(f1.getLineOffset(3)).isEqualTo(10);
+    assertThat(f1.getNumBytes()).isEqualTo(14);
+    assertThat(f1.getNumLines()).isEqualTo(4);
 
     SourceFile f2 = factory.apply("'100';\n'200;'\n'300'\n");
     assertThat(f2.getLineOffset(1)).isEqualTo(0);
     assertThat(f2.getLineOffset(2)).isEqualTo(7);
     assertThat(f2.getLineOffset(3)).isEqualTo(14);
+    assertThat(f2.getNumBytes()).isEqualTo(20);
+    assertThat(f2.getNumLines()).isEqualTo(4);
 
     String longLine = stringOfLength(300);
     SourceFile f3 = factory.apply(longLine + "\n" + longLine + "\n" + longLine + "\n");
@@ -135,9 +124,19 @@ public final class SourceFileTest {
     assertThat(f3.getLineOfOffset(902)).isEqualTo(3);
     assertThat(f3.getLineOfOffset(903)).isEqualTo(4);
 
+    assertThat(f3.getNumBytes()).isEqualTo(903);
+    assertThat(f3.getNumLines()).isEqualTo(4);
+
     // TODO(nickreid): This seems like a bug.
     assertThat(f3.getLineOfOffset(-1)).isEqualTo(0);
     assertThrows(Exception.class, () -> f3.getColumnOfOffset(-1));
+
+    SourceFile startsWithNewline = factory.apply("\n'a'\n'b'");
+    assertThat(startsWithNewline.getLineOffset(1)).isEqualTo(0);
+    assertThat(startsWithNewline.getLineOffset(2)).isEqualTo(1);
+    assertThat(startsWithNewline.getLineOffset(3)).isEqualTo(5);
+    assertThat(startsWithNewline.getNumBytes()).isEqualTo(8);
+    assertThat(startsWithNewline.getNumLines()).isEqualTo(3);
   }
 
   @Test
@@ -304,7 +303,8 @@ public final class SourceFileTest {
     SourceFile newFile =
         SourceFile.builder()
             .withOriginalPath("original_test.js")
-            .buildFromFile(tempFile.toString());
+            .withPath(tempFile.toString())
+            .build();
     String actualContent;
 
     actualContent = newFile.getLine(1);
@@ -407,6 +407,161 @@ public final class SourceFileTest {
     assertThat(sourceFile.getLines(-20, 1).getSourceExcerpt()).isEqualTo("const a = 0;");
     assertThat(sourceFile.getLines(0, 1).getSourceExcerpt()).isEqualTo("const a = 0;");
     assertThat(sourceFile.getLines(4, 1)).isNull();
+  }
+
+  @Test
+  public void testFromProtoPreloadedContents() throws IOException {
+    SourceFile sourceFile =
+        SourceFile.fromProto(
+            SourceFileProto.newBuilder()
+                .setFilename("file.js")
+                .setSourceKind(SourceFileProto.SourceKind.CODE)
+                .setPreloadedContents("42")
+                .build());
+
+    assertThat(sourceFile.getName()).isEqualTo("file.js");
+    assertThat(sourceFile.getCode()).isEqualTo("42");
+    assertThat(sourceFile.getNumLines()).isEqualTo(1);
+    assertThat(sourceFile.getNumBytes()).isEqualTo(2);
+  }
+
+  @Test
+  public void testFromProto_getNumLinesAvoidsFileRead() throws IOException {
+    // Create a SourceFile pointing to a path that doesn't actually exist.
+    SourceFile sourceFile =
+        SourceFile.fromProto(
+            SourceFileProto.newBuilder()
+                .setFilename("file.js")
+                .setSourceKind(SourceFileProto.SourceKind.CODE)
+                .setFileOnDisk(SourceFileProto.FileOnDisk.getDefaultInstance())
+                .setNumLinesPlusOne(2)
+                .setNumBytesPlusOne(3)
+                .build());
+
+    // Reading the number of lines and bytes should succeed, since that information was
+    // included in the proto and shouldn't need to be calculated by reading the file from disk.
+    assertThat(sourceFile.getNumLines()).isEqualTo(1);
+    assertThat(sourceFile.getNumBytes()).isEqualTo(2);
+
+    // Verify reading the file from disk does fail.
+    assertThrows(IOException.class, sourceFile::getCode);
+  }
+
+  @Test
+  public void testFromProtoPreloadedContents_withNumLinesAndBytes() {
+    SourceFile sourceFile =
+        SourceFile.fromProto(
+            SourceFileProto.newBuilder()
+                .setFilename("file.js")
+                .setSourceKind(SourceFileProto.SourceKind.CODE)
+                .setPreloadedContents("42")
+                .setNumLinesPlusOne(2)
+                .setNumBytesPlusOne(3)
+                .build());
+
+    assertThat(sourceFile.getNumLines()).isEqualTo(1);
+    assertThat(sourceFile.getNumBytes()).isEqualTo(2);
+  }
+
+  @Test
+  public void testGetProto_withoutGetCodeCalls() throws IOException {
+    SourceFile sourceFile = SourceFile.fromCode("file.js", "42");
+
+    SourceFileProto sourceFileProto = sourceFile.getProto();
+
+    assertThat(sourceFileProto)
+        .isEqualTo(
+            SourceFileProto.newBuilder()
+                .setFilename("file.js")
+                .setPreloadedContents("42")
+                .setSourceKind(SourceFileProto.SourceKind.CODE)
+                .build());
+  }
+
+  @Test
+  public void testGetProto_withGetCodeCalls() throws IOException {
+    SourceFile sourceFile = SourceFile.fromCode("file.js", "42");
+    var unused = sourceFile.getCode();
+
+    SourceFileProto sourceFileProto = sourceFile.getProto();
+
+    assertThat(sourceFileProto)
+        .isEqualTo(
+            SourceFileProto.newBuilder()
+                .setFilename("file.js")
+                .setPreloadedContents("42")
+                // note that numLines and numBytes are only present after a 'getCode' call.
+                .setNumLinesPlusOne(2)
+                .setNumBytesPlusOne(3)
+                .setSourceKind(SourceFileProto.SourceKind.CODE)
+                .build());
+  }
+
+  @Test
+  public void testGetProto_withGetCodeCalls_andClearCachedSource() throws IOException {
+    SourceFile sourceFile = SourceFile.fromCode("file.js", "42");
+    var unused = sourceFile.getCode();
+    sourceFile.clearCachedSource();
+
+    SourceFileProto sourceFileProto = sourceFile.getProto();
+
+    assertThat(sourceFileProto)
+        .isEqualTo(
+            SourceFileProto.newBuilder()
+                .setFilename("file.js")
+                .setPreloadedContents("42")
+                // note that numLines and numBytes are still present, i.e. were not cleared by
+                // .clearCachedSource()
+                .setNumLinesPlusOne(2)
+                .setNumBytesPlusOne(3)
+                .setSourceKind(SourceFileProto.SourceKind.CODE)
+                .build());
+  }
+
+  @Test
+  public void testRestoreCachedState_correctNumLines() {
+    SourceFile sourceFile = SourceFile.fromCode("file.js", "42");
+
+    // In the proto, numLines and numBytes are increased by 1 from the actual value.
+    sourceFile.restoreCachedStateFrom(
+        SourceFileProto.newBuilder()
+            .setFilename("file.js")
+            .setNumLinesPlusOne(2)
+            .setNumBytesPlusOne(3)
+            .build());
+
+    assertThat(sourceFile.getNumLines()).isEqualTo(1);
+    assertThat(sourceFile.getNumBytes()).isEqualTo(2);
+  }
+
+  @Test
+  public void testRestoreCachedState_forcesRecalculationIfValuesUnsetInProto() {
+    SourceFile sourceFile = SourceFile.fromCode("file.js", "42");
+
+    sourceFile.restoreCachedStateFrom(
+        SourceFileProto.newBuilder()
+            .setFilename("file.js")
+            // avoid setting numLines and numBytes, so that they default to '0'
+            .build());
+
+    assertThat(sourceFile.getNumLines()).isEqualTo(1);
+    assertThat(sourceFile.getNumBytes()).isEqualTo(2);
+  }
+
+  @Test
+  public void testRestoreCachedState_treatsProtoNumLinesAsCanonical() {
+    SourceFile sourceFile = SourceFile.fromCode("file.js", "42");
+
+    assertThat(sourceFile.getNumLines()).isEqualTo(1);
+
+    sourceFile.restoreCachedStateFrom(
+        SourceFileProto.newBuilder()
+            .setFilename("file.js")
+            .setNumLinesPlusOne(1000)
+            .setNumBytesPlusOne(-1)
+            .build());
+
+    assertThat(sourceFile.getNumLines()).isEqualTo(999);
   }
 
   @SuppressWarnings("unchecked")

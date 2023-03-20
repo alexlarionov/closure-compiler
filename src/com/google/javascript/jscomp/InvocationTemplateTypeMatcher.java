@@ -21,6 +21,7 @@ import static com.google.javascript.rhino.jstype.JSTypeNative.UNKNOWN_TYPE;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -34,8 +35,8 @@ import com.google.javascript.rhino.jstype.TemplateType;
 import com.google.javascript.rhino.jstype.TemplateTypeMap;
 import com.google.javascript.rhino.jstype.TemplatizedType;
 import com.google.javascript.rhino.jstype.UnionType;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -51,7 +52,7 @@ import java.util.Set;
  */
 final class InvocationTemplateTypeMatcher {
 
-  private final Map<TemplateType, JSType> matchedTypes = Maps.newIdentityHashMap();
+  private final IdentityHashMap<TemplateType, JSType> matchedTypes = Maps.newIdentityHashMap();
   private final Set<JSType> seenTypes = Sets.newIdentityHashSet();
 
   private final JSTypeRegistry registry;
@@ -166,7 +167,7 @@ final class InvocationTemplateTypeMatcher {
         if (argObjectType != null
             && !argObjectType.isUnknownType()
             && !argObjectType.isEmptyType()) {
-          Set<String> names = paramRecordType.getPropertyNames();
+          ImmutableSortedSet<String> names = paramRecordType.getPropertyNames();
           for (String name : names) {
             if (paramRecordType.hasOwnProperty(name) && argObjectType.hasProperty(name)) {
               this.matchTemplateTypesRecursive(

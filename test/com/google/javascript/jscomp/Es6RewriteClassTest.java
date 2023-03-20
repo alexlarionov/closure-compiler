@@ -16,9 +16,8 @@
 package com.google.javascript.jscomp;
 
 import static com.google.common.truth.Truth.assertThat;
-import static com.google.javascript.jscomp.Es6RewriteClass.DYNAMIC_EXTENDS_TYPE;
-import static com.google.javascript.jscomp.Es6ToEs3Util.CANNOT_CONVERT_YET;
-import static com.google.javascript.jscomp.parsing.parser.FeatureSet.ES2015_MODULES;
+import static com.google.javascript.jscomp.TranspilationUtil.CANNOT_CONVERT_YET;
+import static com.google.javascript.jscomp.TypedScopeCreator.DYNAMIC_EXTENDS_WITHOUT_JSDOC;
 import static com.google.javascript.rhino.testing.NodeSubject.assertNode;
 
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
@@ -63,20 +62,20 @@ public final class Es6RewriteClassTest extends CompilerTestCase {
     enableTypeInfoValidation();
     enableScriptFeatureValidation();
     replaceTypesWithColors();
+    enableMultistageCompilation();
   }
 
   private static PassFactory makePassFactory(
       String name, Function<AbstractCompiler, CompilerPass> pass) {
-    return PassFactory.builder()
-        .setName(name)
-        .setInternalFactory(pass)
-        .setFeatureSet(ES2015_MODULES)
-        .build();
+    return PassFactory.builder().setName(name).setInternalFactory(pass).build();
   }
 
   @Override
   protected CompilerPass getProcessor(final Compiler compiler) {
     PhaseOptimizer optimizer = new PhaseOptimizer(compiler, null);
+    optimizer.addOneTimePass(
+        makePassFactory(
+            "es6RewriteClassExtendsExpressions", Es6RewriteClassExtendsExpressions::new));
     optimizer.addOneTimePass(makePassFactory("es6ConvertSuper", Es6ConvertSuper::new));
     optimizer.addOneTimePass(makePassFactory("es6ExtractClasses", Es6ExtractClasses::new));
     optimizer.addOneTimePass(makePassFactory("es6RewriteClass", Es6RewriteClass::new));
@@ -543,6 +542,16 @@ public final class Es6RewriteClassTest extends CompilerTestCase {
   }
 
   @Test
+  public void testClassExpressionInDefaultParamValue_canConvert() {
+    test(
+        "function bar(foo = class { }) {};",
+        lines(
+            "function bar(foo = (() => {",
+            "  /** @constructor */ const testcode$classdecl$var0 = function() {};",
+            "  return testcode$classdecl$var0; })()) {};"));
+  }
+
+  @Test
   public void testExtendsWithImplicitConstructor() {
     test(
         "class D {} class C extends D {}",
@@ -829,18 +838,52 @@ public final class Es6RewriteClassTest extends CompilerTestCase {
   }
 
   @Test
-  public void testInvalidExtends_call() {
-    testError("class C extends foo() {}", DYNAMIC_EXTENDS_TYPE);
+  public void testDynamicExtends_callWithoutJSDoc() {
+    testWarning("class C extends foo() {}", DYNAMIC_EXTENDS_WITHOUT_JSDOC);
   }
 
   @Test
-  public void testInvalidExtends_functionExpression() {
-    testError("class C extends function(){} {}", DYNAMIC_EXTENDS_TYPE);
+  public void testDynamicExtends_callWithJSDoc() {
+    test(
+        "/** @extends {Object} */ class C extends foo() {}",
+        lines(
+            "const testcode$classextends$var0 = foo();",
+            "/** @constructor */",
+            "let C = function() {",
+            "  return testcode$classextends$var0.apply(this, arguments) || this;",
+            "};",
+            "$jscomp.inherits(C, testcode$classextends$var0);"));
   }
 
   @Test
-  public void testInvalidExtends_logicalExpression() {
-    testError("class A {}; class B {}; class C extends (foo ? A : B) {}", DYNAMIC_EXTENDS_TYPE);
+  public void testDynamicExtends_functionExpression_suppressCheckTypes() {
+    test(
+        "/** @suppress {checkTypes} */ class C extends function(){} {}",
+        lines(
+            "const testcode$classextends$var0 = function() {};",
+            "/** @constructor */",
+            "let C = function() {",
+            "  testcode$classextends$var0.apply(this, arguments);",
+            "};",
+            "$jscomp.inherits(C, testcode$classextends$var0);"));
+  }
+
+  @Test
+  public void testDynamicExtends_logicalExpressionWithJSDoc() {
+    test(
+        "class A {} class B {} /** @extends {Object} */ class C extends (foo ? A : B) {}",
+        lines(
+            "/** @constructor */",
+            "let A = function() {};",
+            "/** @constructor */",
+            "let B = function() {};",
+            "const testcode$classextends$var0 = foo ? A : B;",
+            "",
+            "/** @constructor */",
+            "let C = function() {",
+            "  testcode$classextends$var0.apply(this, arguments);",
+            "};",
+            "$jscomp.inherits(C, testcode$classextends$var0);"));
   }
 
   @Test
@@ -2465,6 +2508,10 @@ public final class Es6RewriteClassTest extends CompilerTestCase {
     Node sourceCName = getNodeWithName(sourceRoot, "C");
     Node sourceClass = sourceCName.getParent();
 
+    // Multistage compilation does not preserve length in the actual output, so remove it from the
+    // expected output as well.
+    removeLengthFromSubtree(sourceRoot);
+
     // `C` from `let C = function() {};` matches `C` from `class C { }`
     Node expectedCName = getNodeWithName(expectedRoot, "C");
     assertNode(expectedCName).matchesQualifiedName("C").hasEqualSourceInfoTo(sourceCName);
@@ -2489,6 +2536,10 @@ public final class Es6RewriteClassTest extends CompilerTestCase {
     // `constructor() {}`
     Node sourceConstructorFunction = getNodeWithName(sourceRoot, "constructor").getOnlyChild();
     assertNode(sourceConstructorFunction).hasToken(Token.FUNCTION);
+
+    // Multistage compilation does not preserve length in the actual output, so remove it from the
+    // expected output as well.
+    removeLengthFromSubtree(sourceRoot);
 
     // `C` from `let C = function() {};` matches `C` from `class C {`
     Node expectedCName = getNodeWithName(expectedRoot, "C");
@@ -2517,6 +2568,10 @@ public final class Es6RewriteClassTest extends CompilerTestCase {
     Node sourceMethodMemberDef = getNodeWithName(sourceRoot, "method");
     // The FUNCTION node for `method() {}`
     Node sourceMethodFunction = sourceMethodMemberDef.getOnlyChild();
+
+    // Multistage compilation does not preserve length in the actual output, so remove it from the
+    // expected output as well.
+    removeLengthFromSubtree(sourceRoot);
 
     // `C.prototype.method` has source info matching `method`
     Node cPrototypeMethod = getNodeWithName(expectedRoot, "method");
@@ -2567,6 +2622,10 @@ public final class Es6RewriteClassTest extends CompilerTestCase {
     assertNode(sourceSuperCall).hasToken(Token.CALL);
     Node sourceSuper = sourceSuperCall.getFirstChild();
     assertNode(sourceSuper).hasToken(Token.SUPER);
+
+    // Multistage compilation does not preserve length in the actual output, so remove it from the
+    // expected output as well.
+    removeLengthFromSubtree(sourceRoot);
 
     // D.call(this); has the position and length of `super()`
     Node callNode = getNodeMatchingLabel(expectedRoot, "SUPER").getOnlyChild();
@@ -2623,6 +2682,10 @@ public final class Es6RewriteClassTest extends CompilerTestCase {
     assertNode(sourceSuperGet).hasToken(Token.GETELEM);
     Node sourceSuper = sourceSuperGet.getFirstChild();
     assertNode(sourceSuper).hasToken(Token.SUPER);
+
+    // Multistage compilation does not preserve length in the actual output, so remove it from the
+    // expected output as well.
+    removeLengthFromSubtree(sourceRoot);
 
     // Foo.prototype['m'].call(this) matches source info of `super['m']()`
     Node callNode = getNodeMatchingLabel(expectedRoot, "RETURN").getOnlyChild();
@@ -2802,6 +2865,14 @@ public final class Es6RewriteClassTest extends CompilerTestCase {
     AstPair(Node sourceRoot, Node expectedRoot) {
       this.sourceRoot = sourceRoot;
       this.expectedRoot = expectedRoot;
+    }
+  }
+
+  /** Sets n.getLength() to 0 for every node in the given subtree */
+  private static void removeLengthFromSubtree(Node root) {
+    root.setLength(0);
+    for (Node child = root.getFirstChild(); child != null; child = child.getNext()) {
+      removeLengthFromSubtree(child);
     }
   }
 }

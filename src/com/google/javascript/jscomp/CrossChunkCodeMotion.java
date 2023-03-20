@@ -272,7 +272,7 @@ class CrossChunkCodeMotion implements CompilerPass {
      */
     final Set<GlobalSymbol> referencingGlobalSymbols = new LinkedHashSet<>();
     /** Instanceof references we may need to update with a guard after moving declarations. */
-    Deque<InstanceofReference> instanceofReferencesToGuard = new ArrayDeque<>();
+    final Deque<InstanceofReference> instanceofReferencesToGuard = new ArrayDeque<>();
     /** Used by OrderAndCombineGlobalSymbols to find reference cycles. */
     int preorderNumber = -1;
     /** Used by OrderAndCombineGlobalSymbols to find reference cycles. */
@@ -419,11 +419,11 @@ class CrossChunkCodeMotion implements CompilerPass {
     Node referenceForTypeOf = referenceNode.cloneNode();
     Node tmp = IR.block();
     // Wrap "foo instanceof Bar" in
-    // "('undefined' != typeof Bar && foo instanceof Bar)"
+    // "('function' == typeof Bar && foo instanceof Bar)"
     instanceofNode.replaceWith(tmp);
     Node and =
         IR.and(
-            new Node(Token.NE, IR.string("undefined"), new Node(Token.TYPEOF, referenceForTypeOf)),
+            new Node(Token.EQ, IR.string("function"), new Node(Token.TYPEOF, referenceForTypeOf)),
             instanceofNode);
     and.srcrefTreeIfMissing(instanceofNode);
     tmp.replaceWith(and);
@@ -443,7 +443,7 @@ class CrossChunkCodeMotion implements CompilerPass {
     /** chunk containing the statements */
     JSChunk currentModule;
     /** statements in the group, latest first */
-    Deque<TopLevelStatement> statementStack = new ArrayDeque<>();
+    final Deque<TopLevelStatement> statementStack = new ArrayDeque<>();
 
     DeclarationStatementGroup(GlobalSymbol declaredGlobalSymbol, JSChunk currentModule) {
       this.declaredGlobalSymbol = declaredGlobalSymbol;
@@ -576,12 +576,10 @@ class CrossChunkCodeMotion implements CompilerPass {
    * global symbols refer to each other.
    */
   private class DeclarationStatementGroupCycle {
-    GlobalSymbolCycle globalSymbolCycle;
-    JSChunk currentModule;
-    Deque<DeclarationStatementGroup> dsgs;
+    final JSChunk currentModule;
+    final Deque<DeclarationStatementGroup> dsgs;
 
     DeclarationStatementGroupCycle(GlobalSymbolCycle globalSymbolCycle, JSChunk currentModule) {
-      this.globalSymbolCycle = globalSymbolCycle;
       this.currentModule = currentModule;
       this.dsgs = new ArrayDeque<>();
     }
@@ -678,8 +676,8 @@ class CrossChunkCodeMotion implements CompilerPass {
   }
 
   private static class ImmovableInstanceofReference implements InstanceofReference {
-    JSChunk module;
-    Reference reference;
+    final JSChunk module;
+    final Reference reference;
 
     ImmovableInstanceofReference(JSChunk module, Reference reference) {
       this.module = module;
@@ -698,8 +696,8 @@ class CrossChunkCodeMotion implements CompilerPass {
   }
 
   private static class MovableInstanceofReference implements InstanceofReference {
-    DeclarationStatementGroup containingDsg;
-    Reference reference;
+    final DeclarationStatementGroup containingDsg;
+    final Reference reference;
 
     MovableInstanceofReference(DeclarationStatementGroup containingDsg, Reference reference) {
       this.containingDsg = containingDsg;
@@ -725,10 +723,9 @@ class CrossChunkCodeMotion implements CompilerPass {
    */
   private boolean isUndefinedTypeofGuardReference(Node reference) {
     // reference => typeof => `!=`
-    Node undefinedTypeofGuard = reference.getGrandparent();
-    if (undefinedTypeofGuard != null
-        && isUndefinedTypeofGuardFor(undefinedTypeofGuard, reference)) {
-      Node andNode = undefinedTypeofGuard.getParent();
+    Node maybeTypeofGuard = reference.getGrandparent();
+    if (maybeTypeofGuard != null && isExistenceTypeofGuardFor(maybeTypeofGuard, reference)) {
+      Node andNode = maybeTypeofGuard.getParent();
       return andNode != null
           && andNode.isAnd()
           && isInstanceofFor(andNode.getLastChild(), reference);
@@ -738,17 +735,25 @@ class CrossChunkCodeMotion implements CompilerPass {
   }
 
   /**
-   * Is the expression of the form {@code 'undefined' != typeof Ref}?
+   * Is the expression of the form {@code 'undefined' != typeof Ref} or {@code 'function' == typeof
+   * Ref}?
    *
-   * @param expression
+   * @param expression The expression being checked.
    * @param reference Ref node must be equivalent to this node
    */
-  private boolean isUndefinedTypeofGuardFor(Node expression, Node reference) {
-    if (expression.isNE()) {
+  private boolean isExistenceTypeofGuardFor(Node expression, Node reference) {
+    if (expression.isNE() || expression.isSHNE()) {
       Node undefinedString = expression.getFirstChild();
       Node typeofNode = expression.getLastChild();
       return undefinedString.isStringLit()
           && undefinedString.getString().equals("undefined")
+          && typeofNode.isTypeOf()
+          && typeofNode.getFirstChild().isEquivalentTo(reference);
+    } else if (expression.isEQ() || expression.isSHEQ()) {
+      Node functionString = expression.getFirstChild();
+      Node typeofNode = expression.getLastChild();
+      return functionString.isStringLit()
+          && functionString.getString().equals("function")
           && typeofNode.isTypeOf()
           && typeofNode.getFirstChild().isEquivalentTo(reference);
     } else {
@@ -768,7 +773,7 @@ class CrossChunkCodeMotion implements CompilerPass {
       Node andNode = instanceofNode.getParent();
       return andNode != null
           && andNode.isAnd()
-          && isUndefinedTypeofGuardFor(andNode.getFirstChild(), reference);
+          && isExistenceTypeofGuardFor(andNode.getFirstChild(), reference);
     } else {
       return false;
     }
@@ -778,10 +783,7 @@ class CrossChunkCodeMotion implements CompilerPass {
   private boolean isUnguardedInstanceofReference(Node reference) {
     Node instanceofNode = reference.getParent();
     if (isInstanceofFor(instanceofNode, reference)) {
-      Node andNode = instanceofNode.getParent();
-      return !(andNode != null
-          && andNode.isAnd()
-          && isUndefinedTypeofGuardFor(andNode.getFirstChild(), reference));
+      return !isGuardedInstanceofReference(reference);
     } else {
       return false;
     }
@@ -790,7 +792,6 @@ class CrossChunkCodeMotion implements CompilerPass {
   /**
    * Is the expression of the form {@code x instanceof Ref}?
    *
-   * @param expression
    * @param reference Ref node must be equivalent to this node
    */
   private boolean isInstanceofFor(Node expression, Node reference) {

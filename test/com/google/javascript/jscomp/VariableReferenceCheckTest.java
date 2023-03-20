@@ -456,7 +456,10 @@ public final class VariableReferenceCheckTest extends CompilerTestCase {
 
   @Test
   public void testImportStar() {
-    testSame("import * as ns from './foo.js'");
+    testSame(
+        srcs(
+            SourceFile.fromCode("foo.js", ""),
+            SourceFile.fromCode("bar.js", "import * as ns from './foo.js'")));
   }
 
   @Test
@@ -465,7 +468,7 @@ public final class VariableReferenceCheckTest extends CompilerTestCase {
         lines(
             "export function f(elapsed) {",
             "  let fakeMs = 0;",
-            "  stubs.replace(goog, 'now', () => fakeMs -= elapsed);",
+            "  stubs.replace(Date, 'now', () => fakeMs -= elapsed);",
             "}"));
   }
 

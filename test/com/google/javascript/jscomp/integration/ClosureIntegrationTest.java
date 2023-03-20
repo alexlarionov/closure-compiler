@@ -930,7 +930,7 @@ public final class ClosureIntegrationTest extends IntegrationTestCase {
           // input 0
           "goog.module('a.b');",
           // input 1
-          "goog.module.get('a.b');"
+          "var unsupportedAssignmentToGlobal = goog.module.get('a.b');"
         },
         DiagnosticGroups.CLOSURE_DEP_METHOD_USAGE_CHECKS);
 
@@ -941,7 +941,7 @@ public final class ClosureIntegrationTest extends IntegrationTestCase {
           // input 0
           "goog.module('a.b');",
           // input 1
-          "goog.provide('c'); goog.module.get('a.b');"
+          "goog.provide('c'); var unsupportedAssignmentToGlobal = goog.module.get('a.b');"
         },
         DiagnosticGroups.CLOSURE_DEP_METHOD_USAGE_CHECKS);
   }
@@ -1116,7 +1116,7 @@ public final class ClosureIntegrationTest extends IntegrationTestCase {
     // A bug in Es6RewriteClasses meant we were putting the wrong `originalName` on some nodes.
     CompilerOptions options = createCompilerOptions();
     // force SourceInformationAnnotator to run
-    options.setExternExports(true);
+    options.setExternExportsPath("exports.js");
     options.setLanguageOut(LanguageMode.ECMASCRIPT5);
     options.setClosurePass(true);
 
@@ -1459,5 +1459,32 @@ public final class ClosureIntegrationTest extends IntegrationTestCase {
         options,
         "/** @export */ function Foo() { alert('hi'); }",
         DiagnosticGroup.forType(GenerateExports.MISSING_GOOG_FOR_EXPORT));
+  }
+
+  @Test
+  public void testTypecheckClass_assignedInNestedAssignInGoogModule() {
+    CompilerOptions options = createCompilerOptions();
+    options.setCheckTypes(true);
+    options.setClosurePass(true);
+    options.setChecksOnly(true);
+    options.setBadRewriteModulesBeforeTypecheckingThatWeWantToGetRidOf(true);
+
+    compile(
+        options,
+        lines(
+            "goog.module('main');",
+            "",
+            "var TestEl_1;",
+            "let TestEl = TestEl_1 = class TestEl {",
+            "  constructor() {",
+            "      this.someVal = false;",
+            "  }",
+            "}",
+            // pattern that may be generated from TypeScript decorators
+            "TestEl = TestEl_1 = (0, decorate)(TestEl);",
+            "exports.TestEl = TestEl;",
+            "/** @type {!TestEl} */ const t = new TestEl();"));
+
+    checkUnexpectedErrorsOrWarnings(lastCompiler, 0);
   }
 }

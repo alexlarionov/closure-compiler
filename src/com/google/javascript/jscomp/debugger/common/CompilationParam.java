@@ -126,19 +126,6 @@ public enum CompilationParam {
     }
   },
 
-  /** Skip the RemoveTypes pass. May cause unexpected changes in optimization output */
-  PRESERVE_TYPES_FOR_DEBUGGING(ParamGroup.ERROR_CHECKING) {
-    @Override
-    public void apply(CompilerOptions options, boolean value) {
-      options.setShouldUnsafelyPreserveTypesForDebugging(value);
-    }
-
-    @Override
-    public String getJavaInfo() {
-      return "options.setShouldUnsafelyPreserveTypesForDebugging(true);";
-    }
-  },
-
   /** Run the module rewriting pass before the typechecking pass. */
   REWRITE_MODULES_BEFORE_TYPECHECKING(true, ParamGroup.ERROR_CHECKING) {
     @Override
@@ -963,7 +950,7 @@ public enum CompilationParam {
   },
 
   /** Preserve more non-type-related information from JSDoc. */
-  PRESERVE_FULL_JSDOC_DESCRIPTIONS(ParamGroup.MISC) {
+  PARSE_FULL_JSDOC_DESCRIPTIONS(ParamGroup.MISC) {
     @Override
     public void apply(CompilerOptions options, boolean value) {
       options.setParseJsDocDocumentation(
@@ -979,7 +966,7 @@ public enum CompilationParam {
     }
   },
 
-  PRESERVE_TYPE_ANNOTATIONS(true, ParamGroup.MISC) {
+  PARSE_TYPE_ANNOTATIONS(true, ParamGroup.MISC) {
     @Override
     public void apply(CompilerOptions options, boolean value) {
       options.setPreserveTypeAnnotations(value);

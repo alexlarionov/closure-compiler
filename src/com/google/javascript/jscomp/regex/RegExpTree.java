@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import org.jspecify.nullness.Nullable;
 
 /**
  * An AST for JavaScript regular expressions.
@@ -679,7 +680,8 @@ public abstract class RegExpTree {
        */
       private RegExpTree parseRepetition(RegExpTree body) {
         if (pos == limit) { return body; }
-        int min, max;
+        int min;
+        int max;
         switch (pattern.charAt(pos)) {
           case '+':
             ++pos;
@@ -794,7 +796,8 @@ public abstract class RegExpTree {
 
     Concatenation c = (Concatenation) t;
     if (c.elements.isEmpty()) { return false; }
-    RegExpTree first = c.elements.get(0), last = Iterables.getLast(c.elements);
+    RegExpTree first = c.elements.get(0);
+    RegExpTree last = Iterables.getLast(c.elements);
     if (!(first instanceof Anchor && last instanceof Anchor)) { return false; }
     return ((Anchor) first).type == '^' && ((Anchor) last).type == '$';
   }
@@ -1085,7 +1088,8 @@ public abstract class RegExpTree {
   /** Represents a repeating item such as ...+, ...*, or ...{0,1} */
   public static final class Repetition extends RegExpTree {
     final RegExpTree body;
-    final int min, max;
+    final int min;
+    final int max;
     final boolean greedy;
 
     Repetition(RegExpTree body, int min, int max, boolean greedy) {
@@ -1200,7 +1204,7 @@ public abstract class RegExpTree {
       int bodyLen = bodyEnd - bodyStart;
       int min = this.min;
       int max = this.max;
-      if (min >= 2 && max == Integer.MAX_VALUE || max - min <= 1) {
+      if ((min >= 2 && max == Integer.MAX_VALUE) || max - min <= 1) {
         int expanded =
            // If min == max then we want to try expanding to the limit and
            // attach the empty suffix, which is equivalent to min = max = 1,
@@ -1682,7 +1686,7 @@ public abstract class RegExpTree {
     private final String propertyValue;
     private final boolean negated;
 
-    UnicodePropertyEscape(String propertyName, String propertyValue, boolean negated) {
+    UnicodePropertyEscape(@Nullable String propertyName, String propertyValue, boolean negated) {
       checkState(propertyValue != null);
       checkArgument(
           propertyName == null || !propertyName.isEmpty(),
@@ -1768,15 +1772,15 @@ public abstract class RegExpTree {
   private static final CharRanges IE_SPEC_ERRORS = SPACE_CHARS.difference(
       IE_SPACE_CHARS);
 
-  private static final ImmutableMap<Character, CharRanges> NAMED_CHAR_GROUPS
-       = ImmutableMap.<Character, CharRanges>builder()
+  private static final ImmutableMap<Character, CharRanges> NAMED_CHAR_GROUPS =
+      ImmutableMap.<Character, CharRanges>builder()
           .put('d', DIGITS)
           .put('D', CharRanges.ALL_CODE_UNITS.difference(DIGITS))
           .put('s', SPACE_CHARS)
           .put('S', CharRanges.ALL_CODE_UNITS.difference(SPACE_CHARS))
           .put('w', WORD_CHARS)
           .put('W', INVERSE_WORD_CHARS)
-          .build();
+          .buildOrThrow();
 
   private static final Charset DOT_CHARSET = new Charset(
       CharRanges.ALL_CODE_UNITS.difference(
@@ -2115,13 +2119,14 @@ public abstract class RegExpTree {
           }
         }
 
-        RegExpTree simplifyPairwise(RegExpTree before, RegExpTree after) {
+        @Nullable RegExpTree simplifyPairwise(RegExpTree before, RegExpTree after) {
           if (before instanceof Text && after instanceof Text) {
             return new Text(
                 ((Text) before).text + ((Text) after).text).simplify(flags);
           }
           // Fold adjacent repetitions.
-          int beforeMin = 1, beforeMax = 1;
+          int beforeMin = 1;
+          int beforeMax = 1;
           RegExpTree beforeBody = before;
           boolean beforeGreedy = false;
           if (before instanceof Repetition) {
@@ -2131,7 +2136,8 @@ public abstract class RegExpTree {
             beforeBody = r.body;
             beforeGreedy = r.greedy;
           }
-          int afterMin = 1, afterMax = 1;
+          int afterMin = 1;
+          int afterMax = 1;
           RegExpTree afterBody = after;
           boolean afterGreedy = false;
           if (after instanceof Repetition) {

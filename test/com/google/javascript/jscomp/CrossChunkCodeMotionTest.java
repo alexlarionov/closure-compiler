@@ -22,9 +22,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
-/**
- * Tests for {@link CrossChunkCodeMotion}.
- */
+/** Tests for {@link CrossChunkCodeMotion}. */
 @RunWith(JUnit4.class)
 public final class CrossChunkCodeMotionTest extends CompilerTestCase {
 
@@ -372,7 +370,7 @@ public final class CrossChunkCodeMotionTest extends CompilerTestCase {
                 .addChunk("var a = new f();")
                 .build()),
         expected(
-            "'undefined' != typeof f && 1 instanceof f;", "class f { bar(){} } var a = new f();"));
+            "'function' == typeof f && 1 instanceof f;", "class f { bar(){} } var a = new f();"));
   }
 
   @Test
@@ -385,7 +383,7 @@ public final class CrossChunkCodeMotionTest extends CompilerTestCase {
                 .addChunk("var a = new f();")
                 .build()),
         expected(
-            "'undefined' != typeof f && 1 instanceof f;",
+            "'function' == typeof f && 1 instanceof f;",
             "function f(){} f.prototype.bar=function (){}; var a = new f();"));
   }
 
@@ -421,7 +419,7 @@ public final class CrossChunkCodeMotionTest extends CompilerTestCase {
                 .addChunk("var a = new f();")
                 .build()),
         expected(
-            "(true && ('undefined' != typeof f && 1 instanceof f));",
+            "(true && ('function' == typeof f && 1 instanceof f));",
             "class f { bar(){} } var a = new f();"));
   }
 
@@ -435,7 +433,7 @@ public final class CrossChunkCodeMotionTest extends CompilerTestCase {
                 .addChunk("var a = new f();")
                 .build()),
         expected(
-            "(true && ('undefined' != typeof f && 1 instanceof f));",
+            "(true && ('function' == typeof f && 1 instanceof f));",
             "function f(){} f.prototype.bar=function (){}; var a = new f();"));
   }
 
@@ -453,6 +451,23 @@ public final class CrossChunkCodeMotionTest extends CompilerTestCase {
                 .build()),
         expected(
             "(true && ('undefined' != typeof f && 1 instanceof f));",
+            "function f(){} f.prototype.bar=function (){}; var a = new f();"));
+  }
+
+  @Test
+  public void testClassMovement_alreadyGuardedInstanceof_functionGuard() {
+    parentModuleCanSeeSymbolsDeclaredInChildren = true;
+    test(
+        srcs(
+            JSChunkGraphBuilder.forStar()
+                .addChunk(
+                    lines(
+                        "function f(){} f.prototype.bar=function (){};",
+                        "(true && ('function' == typeof f && 1 instanceof f));"))
+                .addChunk("var a = new f();")
+                .build()),
+        expected(
+            "(true && ('function' == typeof f && 1 instanceof f));",
             "function f(){} f.prototype.bar=function (){}; var a = new f();"));
   }
 
@@ -737,6 +752,113 @@ public final class CrossChunkCodeMotionTest extends CompilerTestCase {
   }
 
   @Test
+  public void testClassMovement_classStaticBlock1() {
+    // TODO(bradfordcsmith):Ideally the class would move
+    test(
+        srcs(
+            JSChunkGraphBuilder.forChain()
+                .addChunk("class Foo { static { } }")
+                .addChunk("new Foo();")
+                .build()),
+        expected("class Foo { static { } }", "new Foo();"));
+  }
+
+  @Test
+  public void testClassMovement_classStaticBlock2() {
+    test(
+        srcs(
+            JSChunkGraphBuilder.forChain()
+                .addChunk("var x = 1;")
+                .addChunk("class Foo { static { x; } } new Foo();")
+                .build()),
+        expected("", "var x = 1; class Foo { static { x; } } new Foo();"));
+  }
+
+  @Test
+  public void testClassMovement_classStaticBlock3() {
+    // TODO(bradfordcsmith):Ideally the class and var would move to m3
+    JSChunk[] modules =
+        JSChunkGraphBuilder.forChain()
+            // m1
+            .addChunk("const x = 1; var y = 2;")
+            // m2
+            .addChunk("class Foo { static { y = 3; } }")
+            // m3
+            .addChunk("new Foo();")
+            .build();
+
+    test(
+        srcs(modules),
+        expected(
+            // m1
+            "const x = 1;",
+            // m2
+            "var y =2; class Foo { static { y = 3; } } ",
+            // m3
+            "new Foo();"));
+  }
+
+  @Test
+  public void testClassMovement_classStaticBlock4() {
+    JSChunk[] modules =
+        JSChunkGraphBuilder.forChain()
+            // m1
+            .addChunk("var x =1;")
+            // m2
+            .addChunk(
+                lines(
+                    "class Foo {", //
+                    "  static {",
+                    "    x = 2;",
+                    "  }",
+                    "}",
+                    "use(x);"))
+            // m3
+            .addChunk("new Foo();")
+            .build();
+
+    test(
+        srcs(modules),
+        expected(
+            // m1
+            "",
+            // m2
+            lines(
+                "var x =1;", //
+                "class Foo {",
+                "  static {",
+                "    x = 2",
+                "  }",
+                "}",
+                "use(x);"),
+            // m3
+            "new Foo();"));
+  }
+
+  @Test
+  public void testClassMovement_mixins() {
+    test(
+        srcs(
+            JSChunkGraphBuilder.forChain()
+                .addChunk(
+                    lines(
+                        "class ValueType {}",
+                        "class Foo {}",
+                        "ValueType.mixin(Foo, ValueType, 5,"
+                            + " goog.reflect.objectProperty('foo', Foo))"))
+                .addChunk("new Foo();")
+                .build()),
+        expected(
+            "", // m1
+            lines(
+                "class ValueType {}",
+                "class Foo {}",
+                "ValueType.mixin(Foo, ValueType, 5, goog.reflect.objectProperty('foo', Foo))",
+                "new Foo();") // m2
+            ));
+  }
+
+  @Test
   public void testPureOrBreakMyCodedStaticClassFieldIsMovable() {
     //
     //
@@ -900,7 +1022,7 @@ public final class CrossChunkCodeMotionTest extends CompilerTestCase {
     testSame(
         srcs(
             JSChunkGraphBuilder.forChain()
-                .addChunk("var f = {'hi': 'mom', 'bye': goog.nullFunction};")
+                .addChunk("var f = {'hi': 'mom', 'bye': shared};")
                 .addChunk("var h = f;")
                 .build()));
   }
@@ -927,7 +1049,7 @@ public final class CrossChunkCodeMotionTest extends CompilerTestCase {
     testSame(
         srcs(
             JSChunkGraphBuilder.forChain()
-                .addChunk("var f = ['hi', goog.nullFunction];")
+                .addChunk("var f = ['hi', shared];")
                 .addChunk("var h = f;")
                 .build()));
   }
@@ -954,7 +1076,7 @@ public final class CrossChunkCodeMotionTest extends CompilerTestCase {
     testSame(
         srcs(
             JSChunkGraphBuilder.forChain()
-                .addChunk("var f = `hi ${goog.nullFunction()}`;")
+                .addChunk("var f = `hi ${shared()}`;")
                 .addChunk("var h = f;")
                 .build()));
   }
@@ -1740,7 +1862,7 @@ public final class CrossChunkCodeMotionTest extends CompilerTestCase {
             // m1
             lines(
                 "function X() {}",
-                "X.prototype.a = function(x) { return 'undefined' != typeof C && x instanceof C; }",
+                "X.prototype.a = function(x) { return 'function' == typeof C && x instanceof C; }",
                 "new X();",
                 ""),
             // m2

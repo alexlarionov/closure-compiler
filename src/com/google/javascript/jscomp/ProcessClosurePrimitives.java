@@ -29,6 +29,7 @@ import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.QualifiedName;
 import com.google.javascript.rhino.Token;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -37,7 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  * Performs some Closure-specific simplifications including rewriting goog.base, goog.addDependency.
@@ -111,6 +112,8 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback implements Comp
 
   /** The root Closure namespace */
   static final String GOOG = "goog";
+
+  private static final QualifiedName GOOG_INHERITS = QualifiedName.of("goog.inherits");
 
   private final AbstractCompiler compiler;
 
@@ -491,7 +494,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback implements Comp
     Node baseClassNode = null;
     if (maybeInheritsExpr != null && NodeUtil.isExprCall(maybeInheritsExpr)) {
       Node callNode = maybeInheritsExpr.getFirstChild();
-      if (callNode.getFirstChild().matchesQualifiedName("goog.inherits")
+      if (GOOG_INHERITS.matches(callNode.getFirstChild())
           && callNode.getLastChild().isQualifiedName()) {
         baseClassNode = callNode.getLastChild();
       }
@@ -513,10 +516,10 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback implements Comp
   }
 
   /**
-   * Returns the qualified name node of the function whose scope we're in,
-   * or null if it cannot be found.
+   * Returns the qualified name node of the function whose scope we're in, or null if it cannot be
+   * found.
    */
-  private static Node getEnclosingDeclNameNode(Node n) {
+  private static @Nullable Node getEnclosingDeclNameNode(Node n) {
     Node fn = NodeUtil.getEnclosingFunction(n);
     return fn == null ? null : NodeUtil.getNameNode(fn);
   }

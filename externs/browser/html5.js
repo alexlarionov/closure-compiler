@@ -422,6 +422,9 @@ CanvasDrawingStyles.prototype.textAlign;
 /** @type {string} */
 CanvasDrawingStyles.prototype.textBaseline;
 
+/** @type {string} */
+CanvasDrawingStyles.prototype.letterSpacing;
+
 // TODO(dramaix): replace this with @record.
 /**
  * @constructor
@@ -488,6 +491,11 @@ BaseRenderingContext2D.prototype.transform = function(
  */
 BaseRenderingContext2D.prototype.setTransform = function(
     m11, m12, m21, m22, dx, dy) {};
+
+/**
+ * @return {undefined}
+ */
+BaseRenderingContext2D.prototype.resetTransform = function() {};
 
 /**
  * @return {!DOMMatrixReadOnly}
@@ -889,6 +897,9 @@ BaseRenderingContext2D.prototype.textAlign;
 /** @type {string} */
 BaseRenderingContext2D.prototype.textBaseline;
 
+/** @type {string} */
+BaseRenderingContext2D.prototype.letterSpacing;
+
 /** @type {number} */
 BaseRenderingContext2D.prototype.lineDashOffset;
 
@@ -899,6 +910,12 @@ BaseRenderingContext2D.prototype.lineDashOffset;
 BaseRenderingContext2D.prototype.direction;
 
 /**
+ * @type {string}
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/filter
+ */
+BaseRenderingContext2D.prototype.filter;
+
+/**
  * @constructor
  * @extends {BaseRenderingContext2D}
  * @see http://www.w3.org/TR/2dcontext/#canvasrenderingcontext2d
@@ -907,12 +924,6 @@ function CanvasRenderingContext2D() {}
 
 /** @const {!HTMLCanvasElement} */
 CanvasRenderingContext2D.prototype.canvas;
-
-/**
- * @type {string}
- * @see https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/filter
- */
-CanvasRenderingContext2D.prototype.filter;
 
 /**
  * @constructor
@@ -1253,26 +1264,65 @@ HTMLImageElement.prototype.decoding;
  */
 HTMLImageElement.prototype.decode;
 
+/**
+ * @record
+ * @see https://html.spec.whatwg.org/multipage/web-messaging.html#structuredserializeoptions
+ */
+function StructuredSerializeOptions() {}
+
+/**
+ * @type {!Array<!Transferable>|undefined}
+ * @see https://html.spec.whatwg.org/multipage/web-messaging.html#dom-structuredserializeoptions-transfer
+ */
+StructuredSerializeOptions.prototype.transfer;
+
+/**
+ * @record
+ * @extends {StructuredSerializeOptions}
+ * @see https://html.spec.whatwg.org/multipage/window-object.html#windowpostmessageoptions
+ */
+function WindowPostMessageOptions() {}
+
+/**
+ * @type {string|undefined}
+ * @see https://html.spec.whatwg.org/multipage/window-object.html#dom-windowpostmessageoptions-targetorigin
+ */
+WindowPostMessageOptions.prototype.targetOrigin;
 
 /**
  * This is a superposition of the Window and Worker postMessage methods.
  * @param {*} message
- * @param {(string|!Array<!Transferable>)=} opt_targetOriginOrTransfer
+ * @param {(string|!StructuredSerializeOptions|!WindowPostMessageOptions|!Array<!Transferable>)=}
+ *     targetOriginOrOptionsOrTransfer
  * @param {(string|!Array<!MessagePort>|!Array<!Transferable>)=}
- *     opt_targetOriginOrPortsOrTransfer
+ *     targetOriginOrPortsOrTransfer
  * @return {void}
  */
-function postMessage(message, opt_targetOriginOrTransfer,
-    opt_targetOriginOrPortsOrTransfer) {}
+function postMessage(
+    message, targetOriginOrOptionsOrTransfer, targetOriginOrPortsOrTransfer) {}
+
+/**
+ * Takes the input value and returns a deep copy by performing the structured
+ * clone algorithm. Transferable objects listed in the transfer array are
+ * transferred, not just cloned, meaning that they are no longer usable in the
+ * input value.
+ * @see https://html.spec.whatwg.org/multipage/structured-data.html#structured-cloning
+ * @param {*} value
+ * @param {!StructuredSerializeOptions=} options
+ * @throws {DOMException}
+ * @return {*}
+ */
+function structuredClone(value, options) {}
 
 /**
  * @param {*} message
- * @param {string=} targetOrigin
+ * @param {(string|!WindowPostMessageOptions)=} targetOriginOrOptions
  * @param {(!Array<!Transferable>)=} transfer
  * @return {void}
- * @see https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage
+ * @see https://html.spec.whatwg.org/multipage/web-messaging.html#posting-messages
  */
-Window.prototype.postMessage = function(message, targetOrigin, transfer) {};
+Window.prototype.postMessage = function(
+    message, targetOriginOrOptions, transfer) {};
 
 /**
  * The postMessage method (as implemented in Opera).
@@ -1462,10 +1512,10 @@ Window.prototype.applicationCache;
 
 /**
  * @see https://developer.mozilla.org/En/DOM/Worker/Functions_available_to_workers
- * @param {...!TrustedScriptURL|string} var_args
+ * @param {...!TrustedScriptURL|!URL|string} urls
  * @return {undefined}
  */
-Window.prototype.importScripts = function(var_args) {};
+Window.prototype.importScripts = function(urls) {};
 
 /**
  * Decodes a string of data which has been encoded using base-64 encoding.
@@ -1487,14 +1537,14 @@ function btoa(stringToEncode) {}
 
 /**
  * @see https://developer.mozilla.org/En/DOM/Worker/Functions_available_to_workers
- * @param {...!TrustedScriptURL|string} var_args
+ * @param {...!TrustedScriptURL|!URL|string} urls
  * @return {undefined}
  */
-function importScripts(var_args) {}
+function importScripts(urls) {}
 
 /**
  * @see http://dev.w3.org/html5/workers/
- * @param {!TrustedScriptURL|string} scriptURL
+ * @param {!TrustedScriptURL|!URL|string} scriptURL
  * @param {!WorkerOptions=} opt_options
  * @constructor
  * @implements {EventTarget}
@@ -1518,19 +1568,22 @@ Worker.prototype.terminate = function() {};
 
 /**
  * Posts a message to the worker thread.
+ * @see https://html.spec.whatwg.org/multipage/workers.html#dom-worker-postmessage
  * @param {*} message
- * @param {Array<!Transferable>=} opt_transfer
+ * @param {(Array<!Transferable>|!StructuredSerializeOptions)=}
+ *     transferOrOptions
  * @return {undefined}
  */
-Worker.prototype.postMessage = function(message, opt_transfer) {};
+Worker.prototype.postMessage = function(message, transferOrOptions) {};
 
 /**
  * Posts a message to the worker thread.
  * @param {*} message
- * @param {Array<!Transferable>=} opt_transfer
+ * @param {(Array<!Transferable>|!StructuredSerializeOptions)=}
+ *     transferOrOptions
  * @return {undefined}
  */
-Worker.prototype.webkitPostMessage = function(message, opt_transfer) {};
+Worker.prototype.webkitPostMessage = function(message, transferOrOptions) {};
 
 /**
  * Sent when the worker thread posts a message to its creator.
@@ -1570,7 +1623,7 @@ WorkerOptions.prototype.type;
 
 /**
  * @see http://dev.w3.org/html5/workers/
- * @param {!TrustedScriptURL|string} scriptURL The URL of the script to run in
+ * @param {!TrustedScriptURL|!URL|string} scriptURL The URL of the script to run in
  *     the SharedWorker.
  * @param {(string|!WorkerOptions)=} options A name that can
  *     later be used to obtain a reference to the same SharedWorker or a
@@ -1695,11 +1748,14 @@ WorkerGlobalScope.prototype.navigator;
 
 /**
  * Worker postMessage method.
+ * @see https://html.spec.whatwg.org/multipage/workers.html#dom-dedicatedworkerglobalscope-postmessage
  * @param {*} message
- * @param {(!Array<!Transferable>)=} transfer
+ * @param {(!Array<!Transferable>|!StructuredSerializeOptions)=}
+ *     transferOrOptions
  * @return {void}
  */
-WorkerGlobalScope.prototype.postMessage = function(message, transfer) {};
+WorkerGlobalScope.prototype.postMessage = function(
+    message, transferOrOptions) {};
 
 /**
  * @see http://dev.w3.org/html5/workers/
@@ -1710,21 +1766,24 @@ function DedicatedWorkerGlobalScope() {}
 
 /**
  * Posts a message to creator of this worker.
+ * @see https://html.spec.whatwg.org/multipage/workers.html#dom-dedicatedworkerglobalscope-postmessage
  * @param {*} message
- * @param {Array<!Transferable>=} opt_transfer
+ * @param {(Array<!Transferable>|!StructuredSerializeOptions)=}
+ *     transferOrOptions
  * @return {undefined}
  */
-DedicatedWorkerGlobalScope.prototype.postMessage =
-    function(message, opt_transfer) {};
+DedicatedWorkerGlobalScope.prototype.postMessage = function(
+    message, transferOrOptions) {};
 
 /**
  * Posts a message to creator of this worker.
  * @param {*} message
- * @param {Array<!Transferable>=} opt_transfer
+ * @param {(Array<!Transferable>|!StructuredSerializeOptions)=}
+ *     transferOrOptions
  * @return {undefined}
  */
 DedicatedWorkerGlobalScope.prototype.webkitPostMessage =
-    function(message, opt_transfer) {};
+    function(message, transferOrOptions) {};
 
 /**
  * Sent when the creator posts a message to this worker.
@@ -1744,7 +1803,7 @@ SharedWorkerGlobalScope.prototype.name;
 
 /**
  * Sent when a connection to this worker is opened.
- * @type {?function(!Event)}
+ * @type {?function(!MessageEvent)}
  */
 SharedWorkerGlobalScope.prototype.onconnect;
 
@@ -3353,7 +3412,7 @@ TimeRanges.prototype.end = function(index) { return 0; };
 /**
  * @see https://html.spec.whatwg.org/multipage/web-sockets.html
  * @constructor
- * @param {string} url
+ * @param {!URL|string} url
  * @param {(string|!Array<string>)=} opt_protocol
  * @implements {EventTarget}
  */
@@ -3526,20 +3585,20 @@ History.prototype.go = function(delta) {};
  * @see http://www.w3.org/TR/html5/history.html#the-history-interface
  * @param {*} data New state.
  * @param {string} title The title for a new session history entry.
- * @param {string=} opt_url The URL for a new session history entry.
+ * @param {!URL|string=} url The URL for a new session history entry.
  * @return {undefined}
  */
-History.prototype.pushState = function(data, title, opt_url) {};
+History.prototype.pushState = function(data, title, url) {};
 
 /**
  * Replaces the current state in the session history.
  * @see http://www.w3.org/TR/html5/history.html#the-history-interface
  * @param {*} data New state.
  * @param {string} title The title for a session history entry.
- * @param {string=} opt_url The URL for a new session history entry.
+ * @param {!URL|string=} url The URL for a new session history entry.
  * @return {undefined}
  */
-History.prototype.replaceState = function(data, title, opt_url) {};
+History.prototype.replaceState = function(data, title, url) {};
 
 /**
  * Pending state object.
@@ -3649,7 +3708,7 @@ Location.prototype.hash;
 
 /**
  * Navigates to the given page.
- * @param {string} url
+ * @param {!URL|string} url
  * @return {undefined}
  * @see https://html.spec.whatwg.org/multipage/history.html#dom-location-assign
  */
@@ -3658,7 +3717,7 @@ Location.prototype.assign = function(url) {};
 /**
  * Removes the current page from the session history and navigates to the given
  * page.
- * @param {string} url
+ * @param {!URL|string} url
  * @return {undefined}
  * @see https://html.spec.whatwg.org/multipage/history.html#dom-location-replace
  */
@@ -4000,6 +4059,14 @@ DOMTokenList.prototype.values = function() {};
  * @see https://developer.mozilla.org/en-US/docs/Web/API/Element/classList
  */
 Element.prototype.classList;
+
+/**
+ * Requests to submit the form.
+ * @param {?HTMLElement=} submitter Submit button, whose attributes can impact
+ *     submission.
+ * @see https://html.spec.whatwg.org/multipage/forms.html#dom-form-requestsubmit-dev
+ */
+HTMLFormElement.prototype.requestSubmit = function(submitter) {};
 
 /**
  * Constraint Validation API properties and methods
@@ -5358,7 +5425,7 @@ Navigator.prototype.cookieEnabled;
 
 /**
  * @param {string} scheme
- * @param {string} url
+ * @param {!URL|string} url
  * @param {string} title
  * @return {undefined}
  */
@@ -5374,7 +5441,7 @@ Navigator.prototype.registerContentHandler = function(mimeType, url, title) {}
 
 /**
  * @param {string} scheme
- * @param {string} url
+ * @param {!URL|string} url
  * @return {undefined}
  */
 Navigator.prototype.unregisterProtocolHandler = function(scheme, url) {}
@@ -5437,6 +5504,12 @@ Navigator.prototype.share = function(data) {};
  * @see https://developer.mozilla.org/en-US/docs/Web/API/NavigatorConcurrentHardware/hardwareConcurrency
  */
 Navigator.prototype.hardwareConcurrency;
+
+/**
+ * @type {UserActivation|undefined}
+ * @see https://html.spec.whatwg.org/multipage/interaction.html#tracking-user-activation
+ */
+ Navigator.prototype.userActivation;
 
 /**
  * @constructor
@@ -5882,3 +5955,23 @@ FormDataEventInit.prototype.formData;
  * @type {?function(FormDataEvent)}
  */
 HTMLFormElement.prototype.onformdata;
+
+/**
+ * @const {boolean}
+ * Whether the document has opted in to cross-origin isolation.
+ * @see https://html.spec.whatwg.org/multipage/webappapis.html#dom-crossoriginisolated
+ */
+Window.prototype.crossOriginIsolated;
+
+/**
+ * @see https://html.spec.whatwg.org/multipage/interaction.html#tracking-user-activation
+ *
+ * @record
+ */
+function UserActivation() {}
+
+/** @type {boolean} */
+UserActivation.prototype.isActive;
+
+/** @type {boolean} */
+UserActivation.prototype.hasBeenActive;

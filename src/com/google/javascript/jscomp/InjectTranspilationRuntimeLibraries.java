@@ -67,19 +67,20 @@ public final class InjectTranspilationRuntimeLibraries extends AbstractPostOrder
     // functions to be have JSType applied to it by the type inferrence.
 
     if (mustBeCompiledAway.contains(Feature.TEMPLATE_LITERALS)) {
-      Es6ToEs3Util.preloadEs6RuntimeFunction(compiler, "createtemplatetagfirstarg");
+      TranspilationUtil.preloadTranspilationRuntimeFunction(compiler, "createtemplatetagfirstarg");
     }
 
-    if (mustBeCompiledAway.contains(Feature.FOR_OF)) {
-      Es6ToEs3Util.preloadEs6RuntimeFunction(compiler, "makeIterator");
-    }
-
-    if (mustBeCompiledAway.contains(Feature.ARRAY_DESTRUCTURING)) {
-      Es6ToEs3Util.preloadEs6RuntimeFunction(compiler, "makeIterator");
+    if (mustBeCompiledAway.contains(Feature.FOR_OF)
+        || mustBeCompiledAway.contains(Feature.ARRAY_DESTRUCTURING)
+        || mustBeCompiledAway.contains(Feature.OBJECT_PATTERN_REST)) {
+      // `makeIterator` isn't needed directly for `OBJECT_PATTERN_REST`, but when we transpile
+      // a destructuring case that contains it, we transpile the entire destructured assignment,
+      // which may also include `ARRAY_DESTRUCTURING`.
+      TranspilationUtil.preloadTranspilationRuntimeFunction(compiler, "makeIterator");
     }
 
     if (mustBeCompiledAway.contains(Feature.ARRAY_PATTERN_REST)) {
-      Es6ToEs3Util.preloadEs6RuntimeFunction(compiler, "arrayFromIterator");
+      TranspilationUtil.preloadTranspilationRuntimeFunction(compiler, "arrayFromIterator");
     }
 
     if (mustBeCompiledAway.contains(Feature.SPREAD_EXPRESSIONS)
@@ -87,7 +88,7 @@ public final class InjectTranspilationRuntimeLibraries extends AbstractPostOrder
       // We must automatically generate the default constructor for descendent classes,
       // and those must call super(...arguments), so we end up injecting our own spread
       // expressions for such cases.
-      Es6ToEs3Util.preloadEs6RuntimeFunction(compiler, "arrayFromIterable");
+      TranspilationUtil.preloadTranspilationRuntimeFunction(compiler, "arrayFromIterable");
     }
 
     if ((mustBeCompiledAway.contains(Feature.OBJECT_LITERALS_WITH_SPREAD)
@@ -100,8 +101,8 @@ public final class InjectTranspilationRuntimeLibraries extends AbstractPostOrder
     }
 
     if (mustBeCompiledAway.contains(Feature.CLASS_EXTENDS)) {
-      Es6ToEs3Util.preloadEs6RuntimeFunction(compiler, "construct");
-      Es6ToEs3Util.preloadEs6RuntimeFunction(compiler, "inherits");
+      TranspilationUtil.preloadTranspilationRuntimeFunction(compiler, "construct");
+      TranspilationUtil.preloadTranspilationRuntimeFunction(compiler, "inherits");
     }
 
     if (mustBeCompiledAway.contains(Feature.CLASS_GETTER_SETTER)) {
@@ -123,6 +124,10 @@ public final class InjectTranspilationRuntimeLibraries extends AbstractPostOrder
     if (mustBeCompiledAway.contains(Feature.FOR_AWAIT_OF)) {
       compiler.ensureLibraryInjected("es6/util/makeasynciterator", /* force= */ false);
     }
+
+    if (mustBeCompiledAway.contains(Feature.REST_PARAMETERS)) {
+      compiler.ensureLibraryInjected("es6/util/restarguments", /* force= */ false);
+    }
   }
 
   private static FeatureSet getScriptFeatures(Node script) {
@@ -143,7 +148,7 @@ public final class InjectTranspilationRuntimeLibraries extends AbstractPostOrder
       case GETTER_DEF:
       case SETTER_DEF:
         if (!getterSetterSupported) {
-          Es6ToEs3Util.cannotConvert(
+          TranspilationUtil.cannotConvert(
               compiler, n, "ES5 getters/setters (consider using --language_out=ES5)");
         }
         break;

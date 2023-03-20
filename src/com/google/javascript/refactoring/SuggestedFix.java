@@ -43,7 +43,7 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  * Object representing the fixes to apply to the source code to create the
@@ -62,7 +62,7 @@ public final class SuggestedFix {
 
   // An optional description of the fix, to distinguish between the various possible fixes
   // for errors that have multiple fixes.
-  @Nullable private final String description;
+  private final @Nullable String description;
 
   // Alternative fixes for the same problem. The fix itself is always the first entry in this list.
   // If you cannot ask the developer which fix is appropriate, apply the first fix instead of
@@ -97,7 +97,7 @@ public final class SuggestedFix {
     return replacements;
   }
 
-  @Nullable public String getDescription() {
+  public @Nullable String getDescription() {
     return description;
   }
 
@@ -132,11 +132,11 @@ public final class SuggestedFix {
    * Builder class for {@link SuggestedFix} that contains helper functions to manipulate JS nodes.
    */
   public static final class Builder {
-    private MatchedNodeInfo matchedNodeInfo = null;
+    private @Nullable MatchedNodeInfo matchedNodeInfo = null;
     private final ImmutableSetMultimap.Builder<String, CodeReplacement> replacements =
         ImmutableSetMultimap.builder();
     private final ImmutableList.Builder<SuggestedFix> alternatives = ImmutableList.builder();
-    private String description = null;
+    private @Nullable String description = null;
 
     /**
      * Sets the node on this SuggestedFix that caused this SuggestedFix to be built in the first
@@ -452,7 +452,7 @@ public final class SuggestedFix {
               ""));
       replacements.put(
           n.getSourceFileName(),
-          CodeReplacement.create(n.getSourceOffset() + n.getLength() - 1, 1 /* length */, ""));
+          CodeReplacement.create(n.getSourceOffset() + n.getLength() - 1, /* length= */ 1, ""));
       return this;
     }
 
@@ -793,8 +793,8 @@ public final class SuggestedFix {
      *   <li>If not, this will return the first goog.require.
      * </ul>
      */
-    @Nullable
-    private static Node findGoogRequireNode(Node n, NodeMetadata metadata, String namespace) {
+    private static @Nullable Node findGoogRequireNode(
+        Node n, NodeMetadata metadata, String namespace) {
       Node script = metadata.getCompiler().getScriptNode(n.getSourceFileName());
       if (script.getFirstChild().isModuleBody()) {
         script = script.getFirstChild();

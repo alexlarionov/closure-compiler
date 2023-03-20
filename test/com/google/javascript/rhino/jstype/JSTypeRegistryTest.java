@@ -56,6 +56,7 @@ import static com.google.javascript.rhino.jstype.JSTypeNative.NUMBER_TYPE;
 import static com.google.javascript.rhino.jstype.JSTypeNative.STRING_TYPE;
 import static com.google.javascript.rhino.testing.TypeSubject.assertType;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.javascript.rhino.IR;
@@ -66,9 +67,9 @@ import com.google.javascript.rhino.testing.AbstractStaticScope;
 import com.google.javascript.rhino.testing.MapBasedScope;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.jspecify.nullness.Nullable;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -84,12 +85,11 @@ public class JSTypeRegistryTest {
   // now much larger
 
   private final JSTypeRegistry registry = new JSTypeRegistry(null, null);
-  private JSTypeResolver.Closer closer;
 
   @Before
   @SuppressWarnings({"MustBeClosedChecker"})
   public void setUp() throws Exception {
-    this.closer = registry.getResolver().openForDefinition();
+    JSTypeResolver.Closer unused = registry.getResolver().openForDefinition();
   }
 
   @Test
@@ -154,7 +154,7 @@ public class JSTypeRegistryTest {
     // Test that it takes one parameter of type
     // function(function((IThenable<TYPE>|TYPE|null|{then: ?})=): ?, function(*=): ?): ?
     FunctionType promiseCtor = promiseType.getConstructor();
-    List<FunctionType.Parameter> paramList = promiseCtor.getParameters();
+    ImmutableList<FunctionType.Parameter> paramList = promiseCtor.getParameters();
     assertThat(paramList).hasSize(1);
     FunctionType.Parameter firstParameter = paramList.get(0);
     FunctionType paramType = firstParameter.getJSType().toMaybeFunctionType();
@@ -315,7 +315,7 @@ public class JSTypeRegistryTest {
   /** Returns a scope that overrides a few methods from {@link AbstractStaticScope} */
   private StaticTypedScope createStaticTypedScope(
       Node root,
-      StaticTypedScope parentScope,
+      @Nullable StaticTypedScope parentScope,
       Map<String, StaticTypedSlot> slots,
       Set<String> reservedNames) {
     return new AbstractStaticScope() {

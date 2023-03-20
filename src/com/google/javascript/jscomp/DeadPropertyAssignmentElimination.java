@@ -24,7 +24,6 @@ import static com.google.common.base.Predicates.alwaysTrue;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.PeekingIterator;
 import com.google.common.collect.Sets;
-import com.google.javascript.jscomp.NodeTraversal.Callback;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import java.util.ArrayDeque;
@@ -35,7 +34,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.Set;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  * An optimization pass that finds and removes dead property assignments within functions and
@@ -210,24 +209,21 @@ public class DeadPropertyAssignmentElimination implements CompilerPass {
       isRead = true;
     }
 
-    boolean isChildPropOf(String lesserPropertyQName) {
-      return qualifiedName != null && qualifiedName.startsWith(lesserPropertyQName + ".");
-    }
   }
 
   /**
    * A NodeTraversal that operates within a function block and collects candidate properties
    * assignments.
    */
-  private static class FindCandidateAssignmentTraversal implements Callback {
+  private static class FindCandidateAssignmentTraversal implements NodeTraversal.Callback {
 
     /**
      * A map of property names to their nodes.
      *
-     * <p>Note: the references {@code a.b} and {@code c.b} will assume that it's the same b,
-     * because a and c may be aliased, and we don't track aliasing.
+     * <p>Note: the references {@code a.b} and {@code c.b} will assume that it's the same b, because
+     * a and c may be aliased, and we don't track aliasing.
      */
-    Map<String, Property> propertyMap = new HashMap<>();
+    final Map<String, Property> propertyMap = new HashMap<>();
 
     /** A set of properties names that are potentially unsafe to remove duplicate writes to. */
     private final Set<String> skiplistedPropNames;
@@ -237,12 +233,12 @@ public class DeadPropertyAssignmentElimination implements CompilerPass {
     }
 
     /**
-     * Gets a {@link Property} given the node that references it; the {@link Property} is created
-     * if it does not already exist.
+     * Gets a {@link Property} given the node that references it; the {@link Property} is created if
+     * it does not already exist.
      *
      * @return A {@link Property}, or null if the provided node is not a qualified name.
      */
-    private Property getOrCreateProperty(Node propNode) {
+    private @Nullable Property getOrCreateProperty(Node propNode) {
       if (!propNode.isQualifiedName()) {
         return null;
       }
@@ -370,15 +366,18 @@ public class DeadPropertyAssignmentElimination implements CompilerPass {
           }
 
           if (NodeUtil.isAssignmentOp(parent) && parent.getFirstChild() == n) {
-            // We always visit the LHS assignment in post-order
-            return false;
+            // This is a write to the property, so skip the read handling below.
+            // We'll handle this write in the visit() method
+            // We need to continue traversing, because there could be a function call
+            // child.
+            return true;
           }
           Property property = getOrCreateProperty(n);
           if (property != null) {
             // Mark all children properties as read.
             property.markLastWriteRead();
 
-            // Only mark children properties as read if we're at at the end of the referenced
+            // Only mark children properties as read if we're at the end of the referenced
             // property chain.
             // Ex. A read of "a.b.c" should mark a, a.b, a.b.c, and a.b.c.* as read, but not a.d
             if (!parent.isGetProp()) {

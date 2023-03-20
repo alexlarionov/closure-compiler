@@ -18,7 +18,7 @@ package com.google.javascript.jscomp;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.javascript.jscomp.AstFactory.type;
-import static com.google.javascript.jscomp.Es6ToEs3Util.cannotConvert;
+import static com.google.javascript.jscomp.TranspilationUtil.cannotConvert;
 
 import com.google.auto.value.AutoValue;
 import com.google.common.base.Preconditions;
@@ -34,7 +34,7 @@ import com.google.javascript.rhino.StaticScope;
 import com.google.javascript.rhino.Token;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /** Converts ES6 classes to valid ES5 or ES3 code. */
 public final class Es6RewriteClass implements NodeTraversal.Callback, CompilerPass {
@@ -45,10 +45,6 @@ public final class Es6RewriteClass implements NodeTraversal.Callback, CompilerPa
           Feature.CLASS_GETTER_SETTER,
           Feature.NEW_TARGET,
           Feature.SUPER);
-
-  static final DiagnosticType DYNAMIC_EXTENDS_TYPE =
-      DiagnosticType.error(
-          "JSC_DYNAMIC_EXTENDS_TYPE", "The class in an extends clause must be a qualified name.");
 
   // This function is defined in js/es6/util/inherits.js
   static final String INHERITS = "$jscomp.inherits";
@@ -123,9 +119,12 @@ public final class Es6RewriteClass implements NodeTraversal.Callback, CompilerPa
               + " side of a simple assignment: "
               + classNode);
     }
-    if (metadata.hasSuperClass() && !metadata.getSuperClassNameNode().isQualifiedName()) {
-      compiler.report(JSError.make(metadata.getSuperClassNameNode(), DYNAMIC_EXTENDS_TYPE));
-      return;
+    if (metadata.hasSuperClass()) {
+      checkState(
+          metadata.getSuperClassNameNode().isQualifiedName(),
+          "Expected Es6RewriteClassExtendsExpressions to make all extends clauses into qualified"
+              + " names, found %s",
+          metadata.getSuperClassNameNode());
     }
 
     Preconditions.checkState(
@@ -155,11 +154,11 @@ public final class Es6RewriteClass implements NodeTraversal.Callback, CompilerPa
       } else {
         Preconditions.checkState(
             member.isMemberFunctionDef() || member.isComputedProp(),
-            "Unexpected class member:",
+            "Unexpected class member: (%s)",
             member);
         Preconditions.checkState(
             !member.getBooleanProp(Node.COMPUTED_PROP_VARIABLE),
-            "Member variables should have been transpiled earlier:",
+            "Member variables should have been transpiled earlier: (%s)",
             member);
         visitMethod(member, metadata);
       }
@@ -203,7 +202,7 @@ public final class Es6RewriteClass implements NodeTraversal.Callback, CompilerPa
         Node inheritsCall =
             IR.exprResult(
                     astFactory.createCall(
-                        astFactory.createQName(this.transpilationNamespace, "$jscomp.inherits"),
+                        astFactory.createQName(this.transpilationNamespace, INHERITS),
                         type(StandardColors.NULL_OR_VOID),
                         metadata.getFullClassNameNode().cloneTree(),
                         metadata.getSuperClassNameNode().cloneTree()))
@@ -268,7 +267,7 @@ public final class Es6RewriteClass implements NodeTraversal.Callback, CompilerPa
     if (prop == null) {
       prop = createPropertyDescriptor();
       Node stringKey = astFactory.createStringKey(member.getString(), prop);
-      if (member.isQuotedString()) {
+      if (member.isQuotedStringKey()) {
         stringKey.putBooleanProp(Node.QUOTED_PROP, true);
       }
       obj.addChildToBack(stringKey);
@@ -340,7 +339,7 @@ public final class Es6RewriteClass implements NodeTraversal.Callback, CompilerPa
     ClassProperty.Builder builder = ClassProperty.builder();
     String memberName = member.getString();
 
-    if (member.isQuotedString()) {
+    if (member.isQuotedStringKey()) {
       builder.kind(ClassProperty.PropertyKind.QUOTED_PROPERTY);
     } else {
       builder.kind(ClassProperty.PropertyKind.NORMAL_PROPERTY);
@@ -483,8 +482,7 @@ public final class Es6RewriteClass implements NodeTraversal.Callback, CompilerPa
 
     abstract JSDocInfo jsDocInfo();
 
-    @Nullable
-    abstract Color propertyType();
+    abstract @Nullable Color propertyType();
 
     /**
      * Returns an EXPR_RESULT node that declares this property on the given node.
@@ -622,12 +620,11 @@ public final class Es6RewriteClass implements NodeTraversal.Callback, CompilerPa
      * Creates an instance for a class statement or a class expression in a simple assignment or var
      * statement with a qualified name. In any other case, returns null.
      */
-    @Nullable
-    static ClassDeclarationMetadata create(Node classNode, Node parent) {
+    static @Nullable ClassDeclarationMetadata create(Node classNode, Node parent) {
       return create(classNode, parent, AstFactory.createFactoryWithoutTypes());
     }
 
-    private static ClassDeclarationMetadata create(
+    private static @Nullable ClassDeclarationMetadata create(
         Node classNode, Node parent, AstFactory astFactory) {
       Node classNameNode = classNode.getFirstChild();
       Node superClassNameNode = classNameNode.getNext();

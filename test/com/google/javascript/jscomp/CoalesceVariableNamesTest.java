@@ -372,6 +372,53 @@ public final class CoalesceVariableNamesTest extends CompilerTestCase {
   }
 
   @Test
+  public void testCoalesceVarinStaticBlock() {
+    test(
+        lines(
+            "function foo() {",
+            "   var x = 0;",
+            "   var y = 2;",
+            "   const C = class{",
+            "      static{",
+            "       print(x);",
+            "      }",
+            "   }",
+            "}"),
+        lines(
+            "function foo() {",
+            "   var x = 0;",
+            "   var y = 2;",
+            "   y = class{",
+            "     static{",
+            "      print(x);",
+            "     }",
+            "   }",
+            "}"));
+
+    test(
+        lines(
+            "function foo() {",
+            "   var x = 0;",
+            "   var y = 2;",
+            "   const C = class {",
+            "      function(){",
+            "       print(x);",
+            "      }",
+            "   }",
+            "}"),
+        lines(
+            "function foo() {",
+            "   var x = 0;",
+            "   var y = 2;",
+            "   y = class {",
+            "     function(){",
+            "      print(x);",
+            "     }",
+            "  }",
+            "}"));
+  }
+
+  @Test
   public void testBug65688660() {
     test(
         lines(
@@ -996,8 +1043,9 @@ public final class CoalesceVariableNamesTest extends CompilerTestCase {
   @Test
   public void testUsePseudoNames() {
     usePseudoName = true;
-    inFunction("var x   = 0; print(x  ); var   y = 1; print(  y)",
-               "var x_y = 0; print(x_y);     x_y = 1; print(x_y)");
+    inFunction(
+        "var x   = 0; print(x  ); var   y = 1; print(  y)",
+        "var x_y = 0; print(x_y);     x_y = 1; print(x_y)");
 
     inFunction(
         "var x_y = 1; var x    = 0; print(x   ); var     y = 1; print(   y); print(x_y);",

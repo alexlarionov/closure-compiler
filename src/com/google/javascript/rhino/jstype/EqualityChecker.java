@@ -49,7 +49,7 @@ import com.google.javascript.rhino.jstype.JSType.MatchStatus;
 import java.util.HashMap;
 import java.util.Objects;
 import java.util.Set;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  * Represents the computation of a single equality relationship.
@@ -246,7 +246,7 @@ final class EqualityChecker {
     /**
      * Unwrap proxies.
      *
-     * <p>Remember that `TemplateType` has identity semantics ans shouldn't be unwrapped.
+     * <p>Remember that `TemplateType` has identity semantics and shouldn't be unwrapped.
      */
     if (left instanceof ProxyObjectType && !(left instanceof TemplateType)) {
       return this.areEqualCaching(((ProxyObjectType) left).getReferencedTypeInternal(), right);

@@ -29,11 +29,10 @@ import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
-import javax.annotation.Nullable;
+import org.jspecify.nullness.Nullable;
 
 /**
  * Rewrites an ES6 module to a CommonJS-like module for the sake of per-file transpilation +
@@ -131,7 +130,7 @@ public class Es6RewriteModulesToCommonJsModules implements CompilerPass {
    * compiler's module runtime.
    */
   private class Rewriter extends AbstractPostOrderCallback {
-    private Node requireInsertSpot;
+    private @Nullable Node requireInsertSpot;
     private final Node script;
     private final Map<String, LocalQName> exportedNameToLocalQName;
     private final Set<Node> imports;
@@ -243,8 +242,7 @@ public class Es6RewriteModulesToCommonJsModules implements CompilerPass {
      * @return qualified name to use to reference an imported value if the given node is an imported
      *     name or null if the value is not imported or if it is in the import statement itself
      */
-    @Nullable
-    private String maybeGetNameOfImportedValue(Scope s, Node nameNode) {
+    private @Nullable String maybeGetNameOfImportedValue(Scope s, Node nameNode) {
       checkState(nameNode.isName());
       Var var = s.getVar(nameNode.getString());
 
@@ -402,11 +400,11 @@ public class Es6RewriteModulesToCommonJsModules implements CompilerPass {
       compiler.reportChangeToChangeScope(getterFunction);
     }
 
-    private void visitImport(ModuleLoader.ModulePath path, Node importDecl) {
+    private void visitImport(ModulePath path, Node importDecl) {
       if (importDecl.getLastChild().getString().contains("://")) {
         compiler.report(
             JSError.make(
-                importDecl, Es6ToEs3Util.CANNOT_CONVERT, "Module requests with protocols."));
+                importDecl, TranspilationUtil.CANNOT_CONVERT, "Module requests with protocols."));
       }
 
       // Normalize the import path according to the module resolution scheme so that bundles are
@@ -486,13 +484,13 @@ public class Es6RewriteModulesToCommonJsModules implements CompilerPass {
     private void visitExportNameDeclaration(Node declaration) {
       //    export var Foo;
       //    export let {a, b:[c,d]} = {};
-      List<Node> lhsNodes = NodeUtil.findLhsNodesInNode(declaration);
+      NodeUtil.visitLhsNodesInNode(declaration, this::addExportedName);
+    }
 
-      for (Node lhs : lhsNodes) {
-        checkState(lhs.isName());
-        String name = lhs.getString();
-        exportedNameToLocalQName.put(name, new LocalQName(name, lhs));
-      }
+    private void addExportedName(Node lhs) {
+      checkState(lhs.isName());
+      String name = lhs.getString();
+      exportedNameToLocalQName.put(name, new LocalQName(name, lhs));
     }
 
     private void visitExportDeclaration(NodeTraversal t, Node export) {
@@ -540,7 +538,7 @@ public class Es6RewriteModulesToCommonJsModules implements CompilerPass {
       } else if (export.hasTwoChildren()) {
         visitExportFrom(t, export, parent);
       } else {
-        if (export.getFirstChild().getToken() == Token.EXPORT_SPECS) {
+        if (export.getFirstChild().isExportSpecs()) {
           visitExportSpecs(t, export);
         } else {
           visitExportDeclaration(t, export);

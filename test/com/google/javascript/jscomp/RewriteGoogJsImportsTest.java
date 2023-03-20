@@ -24,7 +24,6 @@ import com.google.javascript.jscomp.RewriteGoogJsImports.Mode;
 import com.google.javascript.jscomp.deps.ModuleLoader.ResolutionMode;
 import com.google.javascript.jscomp.modules.ModuleMapCreator;
 import com.google.javascript.rhino.Node;
-import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -38,7 +37,8 @@ public final class RewriteGoogJsImportsTest extends CompilerTestCase {
   // JsFileRegexParser determines if this file is base.js by looking at the first comment of the
   // file.
   private static final SourceFile BASE =
-      SourceFile.fromCode("/closure/base.js", "/** @provideGoog */");
+      SourceFile.fromCode(
+          "/closure/base.js", lines("/**", " * @fileoverview", " * @provideGoog", " */"));
 
   private static final SourceFile GOOG =
       SourceFile.fromCode(
@@ -48,12 +48,6 @@ public final class RewriteGoogJsImportsTest extends CompilerTestCase {
               "export function foo() {}",
               "export class MyClass {}",
               "export const constant = 0;"));
-
-  @Override
-  @Before
-  public void setUp() throws Exception {
-    super.setUp();
-  }
 
   @Override
   protected CompilerPass getProcessor(Compiler compiler) {

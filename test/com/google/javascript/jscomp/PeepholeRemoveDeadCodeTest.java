@@ -223,6 +223,20 @@ public final class PeepholeRemoveDeadCodeTest extends CompilerTestCase {
   }
 
   @Test
+  public void testConstantConditionWithSideEffect_coalesce() {
+    fold("b = null; b ?? (x = 1)", "b = null; void 0 ?? (x = 1)");
+    fold("b = undefined; b ?? (x = 1)", "b = undefined; void 0 ?? (x = 1)");
+    fold("b = (fn(), null); b ?? (x = 1)", "b = (fn(), null); void 0 ?? (x = 1)");
+
+    fold("b = 34; b ?? (x = 1)", "b = 34; 0 ?? (x = 1)");
+    fold("b = 'test'; b ?? (x = 1)", "b = 'test'; 0 ?? (x = 1)");
+    fold("b = []; b ?? (x = 1)", "b = []; 0 ?? (x = 1)");
+    fold("b = (fn(), 0); b ?? (x = 1)", " b= (fn(), 0); 0 ?? (x = 1)");
+
+    foldSame("b = fn(); b ?? (x = 1)");
+  }
+
+  @Test
   public void testVarLifting() {
     fold("if(true)var a", "var a");
     fold("if(false)var a", "var a");
@@ -251,6 +265,8 @@ public final class PeepholeRemoveDeadCodeTest extends CompilerTestCase {
 
     // Make sure it plays nice with minimizing
     fold("for(;false;) { foo(); continue }", "");
+
+    fold("l1:for(;false;) {  }", "");
   }
 
   @Test
@@ -1386,6 +1402,8 @@ public final class PeepholeRemoveDeadCodeTest extends CompilerTestCase {
     fold("try {} catch (e) {}", "");
     fold("try {} finally {}", "");
     fold("try {} catch (e) {} finally {}", "");
+    fold("L1:try {} catch (e) {} finally {}", "");
+    fold("L2:L1:try {} catch (e) {} finally {}", "");
   }
 
   @Test
@@ -1735,5 +1753,44 @@ public final class PeepholeRemoveDeadCodeTest extends CompilerTestCase {
             "    this.f1 = 2;",
             "  }",
             "}"));
+  }
+
+  @Test
+  public void testClassStaticBlock() {
+    fold(
+        lines(
+            "class C {", //
+            "  static {",
+            "  }",
+            "}"),
+        lines(
+            "class C {", //
+            "}"));
+
+    foldSame(
+        lines(
+            "class C {", //
+            "  static {",
+            "    this.x = 0;",
+            "  }",
+            "}"));
+  }
+
+  @Test
+  public void testRemoveUnreachableOptionalChainingCall() {
+    fold("(null)?.();", "");
+    fold("(void 0)?.();", "");
+    fold("(undefined)?.();", "");
+    fold("(void 0)?.(0)", "");
+    fold("(void 0)?.(function f() {})", "");
+    // arguments with unknown side effects are also removed
+    fold("(void 0)?.(f(), g())", "");
+
+    // void arguments with unknown side effects are preserved
+    fold("(void f())?.();", "f();");
+    fold("g((void f())?.());", "g(void f());");
+
+    foldSame("(f(), null)?.()");
+    foldSame("f?.()");
   }
 }

@@ -16,17 +16,15 @@
 package com.google.javascript.jscomp;
 
 import static com.google.common.truth.Truth.assertThat;
-import static com.google.javascript.jscomp.Es6ToEs3Util.CANNOT_CONVERT;
-import static com.google.javascript.jscomp.Es6ToEs3Util.CANNOT_CONVERT_YET;
+import static com.google.javascript.jscomp.TranspilationUtil.CANNOT_CONVERT;
+import static com.google.javascript.jscomp.TranspilationUtil.CANNOT_CONVERT_YET;
 import static com.google.javascript.jscomp.TypeCheck.INSTANTIATE_ABSTRACT_CLASS;
-import static com.google.javascript.jscomp.parsing.parser.FeatureSet.ES2016_MODULES;
 
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.serialization.ConvertTypesToColors;
 import com.google.javascript.jscomp.serialization.SerializationOptions;
 import com.google.javascript.jscomp.testing.NoninjectingCompiler;
 import com.google.javascript.jscomp.testing.TestExternsBuilder;
-import java.util.ArrayList;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -66,25 +64,23 @@ public final class Es6TranspilationIntegrationTest extends CompilerTestCase {
   protected CompilerPass getProcessor(final Compiler compiler) {
     PhaseOptimizer optimizer = new PhaseOptimizer(compiler, null);
 
-    ArrayList<PassFactory> passes = new ArrayList<>();
+    PassListBuilder passes = new PassListBuilder(compiler.getOptions());
 
-    passes.add(
+    passes.maybeAdd(
         PassFactory.builder()
             .setName("es6InjectRuntimeLibraries")
             .setInternalFactory(InjectTranspilationRuntimeLibraries::new)
-            .setFeatureSet(ES2016_MODULES)
             .build());
 
-    passes.add(
+    passes.maybeAdd(
         PassFactory.builder()
             .setName("convertTypesToColors")
             .setInternalFactory(
                 (c) -> new ConvertTypesToColors(c, SerializationOptions.INCLUDE_DEBUG_INFO))
-            .setFeatureSet(ES2016_MODULES)
             .build());
 
     TranspilationPasses.addEarlyOptimizationTranspilationPasses(passes, compiler.getOptions());
-    optimizer.consume(passes);
+    optimizer.consume(passes.build());
 
     return optimizer;
   }
@@ -1819,14 +1815,13 @@ public final class Es6TranspilationIntegrationTest extends CompilerTestCase {
         lines(
             "function f() {",
             "  if (true) {",
-            "    var Symbol = function() {};",
-            "    alert(Symbol.ism)",
+            "    var Symbol$0 = function() {};",
+            "    alert(Symbol$0.ism)",
             "  }",
             "}"));
     // No $jscomp.initSymbol in externs
     testExternChanges(
-        "alert(Symbol.thimble);", "",
-        "alert(Symbol.thimble)");
+        externs("alert(Symbol.thimble);"), srcs(""), expected("alert(Symbol.thimble)"));
   }
 
   @Test

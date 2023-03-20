@@ -59,7 +59,7 @@ class FunctionArgumentInjector {
    * @return The root node or its replacement.
    */
   Node inject(AbstractCompiler compiler, Node node, Node parent, Map<String, Node> replacements) {
-    return inject(compiler, node, parent, replacements, /* replaceThis */ true);
+    return inject(compiler, node, parent, replacements, /* replaceThis= */ true);
   }
 
   private Node inject(
@@ -143,7 +143,7 @@ class FunctionArgumentInjector {
             cArg = cArg.getNext();
           }
           argMap.put(fnParam.getOnlyChild().getString(), array);
-          return argMap.build();
+          return argMap.buildOrThrow();
         } else {
           checkState(fnParam.isName(), fnParam);
           argMap.put(fnParam.getString(), cArg);
@@ -152,8 +152,8 @@ class FunctionArgumentInjector {
       } else { // cArg != null
         if (fnParam.isRest()) {
           checkState(fnParam.getOnlyChild().isName(), fnParam);
-          //No arguments for REST parameters
-          Node array = IR.arraylit();
+          // No arguments for REST parameters
+          Node array = IR.arraylit().srcref(fnParam);
           argMap.put(fnParam.getOnlyChild().getString(), array);
         } else {
           checkState(fnParam.isName(), fnParam);
@@ -171,7 +171,7 @@ class FunctionArgumentInjector {
       cArg = cArg.getNext();
     }
 
-    return argMap.build();
+    return argMap.buildOrThrow();
   }
 
   /**
@@ -335,7 +335,9 @@ class FunctionArgumentInjector {
         switch (cArg.getToken()) {
           case NAME:
             String name = cArg.getString();
-            safe = !(convention.isExported(name));
+            // Don't worry about whether this is global or local, just check if it is
+            // "exported" in either case.
+            safe = !(convention.isExported(name, true) || convention.isExported(name, false));
             break;
           case THIS:
             safe = true;

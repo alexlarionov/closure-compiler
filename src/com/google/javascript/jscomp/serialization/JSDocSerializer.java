@@ -25,6 +25,7 @@ import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import java.util.TreeSet;
+import org.jspecify.nullness.Nullable;
 
 /** Utilities for serializing and deserializing JSDoc necessary for optimzations. */
 public final class JSDocSerializer {
@@ -44,7 +45,8 @@ public final class JSDocSerializer {
     return deserializeJsdoc(serializeJsdoc(jsdoc, stringPool), stringPool.build());
   }
 
-  static OptimizationJsdoc serializeJsdoc(JSDocInfo jsdoc, StringPool.Builder stringPool) {
+  static @Nullable OptimizationJsdoc serializeJsdoc(
+      JSDocInfo jsdoc, StringPool.Builder stringPool) {
     if (jsdoc == null) {
       return null;
     }
@@ -69,21 +71,16 @@ public final class JSDocSerializer {
       builder.addKind(JsdocTag.JSDOC_NO_COLLAPSE);
     }
 
-    if (jsdoc.isLocaleFile()) {
-      builder.addKind(JsdocTag.JSDOC_LOCALE_FILE);
-    }
-    if (jsdoc.isLocaleObject()) {
-      builder.addKind(JsdocTag.JSDOC_LOCALE_OBJECT);
-    }
-    if (jsdoc.isLocaleSelect()) {
-      builder.addKind(JsdocTag.JSDOC_LOCALE_SELECT);
-    }
-    if (jsdoc.isLocaleValue()) {
-      builder.addKind(JsdocTag.JSDOC_LOCALE_VALUE);
-    }
-
     if (jsdoc.isProvideGoog()) {
       builder.addKind(JsdocTag.JSDOC_PROVIDE_GOOG);
+    }
+
+    if (jsdoc.isProvideAlreadyProvided()) {
+      builder.addKind(JsdocTag.JSDOC_PROVIDE_ALREADY_PROVIDED);
+    }
+
+    if (jsdoc.isTypeSummary()) {
+      builder.addKind(JsdocTag.JSDOC_TYPE_SUMMARY_FILE);
     }
 
     if (jsdoc.isPureOrBreakMyCode()) {
@@ -204,7 +201,8 @@ public final class JSDocSerializer {
 
   private static final JSTypeExpression placeholderType = createPlaceholderType();
 
-  static JSDocInfo deserializeJsdoc(OptimizationJsdoc serializedJsdoc, StringPool stringPool) {
+  static @Nullable JSDocInfo deserializeJsdoc(
+      OptimizationJsdoc serializedJsdoc, StringPool stringPool) {
     if (serializedJsdoc == null) {
       return null;
     }
@@ -223,9 +221,12 @@ public final class JSDocSerializer {
           stringPool.get(serializedJsdoc.getAlternateMessageIdPointer()));
     }
 
-    TreeSet<String> modifies = new TreeSet<>();
-    TreeSet<String> suppressions = new TreeSet<>();
-    for (JsdocTag tag : serializedJsdoc.getKindList()) {
+    // lazily create these sets to save a few hundred ms for some large projects
+    TreeSet<String> modifies = null;
+    TreeSet<String> suppressions = null;
+
+    for (int i = 0; i < serializedJsdoc.getKindCount(); i++) {
+      JsdocTag tag = serializedJsdoc.getKindList().get(i);
       switch (tag) {
         case JSDOC_CONST:
           builder.recordConstancy();
@@ -245,21 +246,15 @@ public final class JSDocSerializer {
         case JSDOC_NO_INLINE:
           builder.recordNoInline();
           continue;
-        case JSDOC_LOCALE_FILE:
-          builder.recordLocaleFile();
-          continue;
-        case JSDOC_LOCALE_OBJECT:
-          builder.recordLocaleObject();
-          continue;
-        case JSDOC_LOCALE_SELECT:
-          builder.recordLocaleSelect();
-          continue;
-        case JSDOC_LOCALE_VALUE:
-          builder.recordLocaleValue();
-          continue;
-
         case JSDOC_PROVIDE_GOOG:
           builder.recordProvideGoog();
+          continue;
+        case JSDOC_PROVIDE_ALREADY_PROVIDED:
+          builder.recordProvideAlreadyProvided();
+          continue;
+
+        case JSDOC_TYPE_SUMMARY_FILE:
+          builder.recordTypeSummary();
           continue;
 
         case JSDOC_PURE_OR_BREAK_MY_CODE:
@@ -275,9 +270,11 @@ public final class JSDocSerializer {
           builder.recordNoSideEffects();
           continue;
         case JSDOC_MODIFIES_THIS:
+          modifies = (modifies != null ? modifies : new TreeSet<>());
           modifies.add("this");
           continue;
         case JSDOC_MODIFIES_ARGUMENTS:
+          modifies = (modifies != null ? modifies : new TreeSet<>());
           modifies.add("arguments");
           continue;
         case JSDOC_THROWS:
@@ -290,6 +287,7 @@ public final class JSDocSerializer {
           builder.recordInterface();
           continue;
         case JSDOC_SUPPRESS_PARTIAL_ALIAS:
+          suppressions = (suppressions != null ? suppressions : new TreeSet<>());
           suppressions.add("partialAlias");
           continue;
 
@@ -320,6 +318,7 @@ public final class JSDocSerializer {
           // TODO(lharker): stage 2 passes ideally shouldn't report diagnostics, so this could be
           // moved to stage 1.
         case JSDOC_SUPPRESS_MESSAGE_CONVENTION:
+          suppressions = (suppressions != null ? suppressions : new TreeSet<>());
           suppressions.add("messageConventions");
           continue;
 
@@ -333,10 +332,10 @@ public final class JSDocSerializer {
               "Unsupported JSDoc tag can't be deserialized: " + tag);
       }
     }
-    if (!modifies.isEmpty()) {
+    if (modifies != null) {
       builder.recordModifies(modifies);
     }
-    if (!suppressions.isEmpty()) {
+    if (suppressions != null) {
       builder.recordSuppressions(suppressions);
     }
 

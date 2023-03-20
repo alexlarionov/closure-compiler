@@ -20,6 +20,7 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.javascript.jscomp.InvalidatingTypes;
 import com.google.javascript.rhino.jstype.JSType;
 import com.google.javascript.rhino.jstype.JSTypeRegistry;
+import java.util.function.Predicate;
 
 /** Fail-fast replacement */
 public abstract class JSTypeReconserializer {
@@ -28,6 +29,7 @@ public abstract class JSTypeReconserializer {
       JSTypeRegistry registry,
       InvalidatingTypes invalidatingTypes,
       StringPool.Builder stringPoolBuilder,
+      Predicate<String> shouldPropagatePropertyName,
       SerializationOptions serializationMode) {
     throw new UnsupportedOperationException();
   }
@@ -38,5 +40,5 @@ public abstract class JSTypeReconserializer {
 
   abstract ImmutableMultimap<String, String> getColorIdToJSTypeMapForDebugging();
 
-  abstract TypePointer serializeType(JSType type);
+  abstract Integer serializeType(JSType type);
 }

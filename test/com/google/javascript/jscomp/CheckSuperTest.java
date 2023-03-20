@@ -65,12 +65,13 @@ public final class CheckSuperTest extends CompilerTestCase {
   @Test
   public void testMissingSuper_nestedClass() {
     // Note that super is only called for anonymous class "E", not C.
-    testError(lines(
-        "class C extends D {",
-        "  constructor() { ",
-        "    const E = class extends D { constructor() { super(); } };",
-        "  }",
-        "}"),
+    testError(
+        lines(
+            "class C extends D {",
+            "  constructor() { ",
+            "    const E = class extends D { constructor() { super(); } };",
+            "  }",
+            "}"),
         MISSING_CALL_TO_SUPER);
   }
 
@@ -103,6 +104,14 @@ public final class CheckSuperTest extends CompilerTestCase {
   public void testThisAndSuperPropAccessBeforeSuperCall() {
     test(
         srcs("class C extends D { constructor() { this.foo(); super.foo(); super(); } }"),
+        error(SUPER_ACCESS_BEFORE_SUPER_CONSTRUCTOR),
+        error(THIS_BEFORE_SUPER));
+  }
+
+  @Test
+  public void testThisAndSuperPropAccessBeforeSuperCall_inSuperConstructorArgs() {
+    test(
+        srcs("class C extends D { constructor() { super(this.foo(), super.foo()); } }"),
         error(SUPER_ACCESS_BEFORE_SUPER_CONSTRUCTOR),
         error(THIS_BEFORE_SUPER));
   }
@@ -352,9 +361,38 @@ public final class CheckSuperTest extends CompilerTestCase {
         srcs("class C extends D { foo() { super(1); }}"),
         error(INVALID_SUPER_CALL_WITH_SUGGESTION)
             .withMessage("super() not allowed here. Did you mean super.foo?"));
+    test(
+        srcs("class C extends D { static foo() { super(1); }}"),
+        error(INVALID_SUPER_CALL_WITH_SUGGESTION)
+            .withMessage("super() not allowed here. Did you mean super.foo?"));
     testError("class C { static foo() { super(); }}", INVALID_SUPER_CALL_WITH_SUGGESTION);
     testError(
         "class C extends D { foo() { (()=>{ super(); })(); }}", INVALID_SUPER_CALL_WITH_SUGGESTION);
+    testError(
+        "class C extends D { static foo() { (()=>{ super(); })(); }}",
+        INVALID_SUPER_CALL_WITH_SUGGESTION);
+  }
+
+  @Test
+  public void testSuperCallInStaticBlock() {
+    testError("class C extends D {static {super();}}", INVALID_SUPER_CALL);
+    testError("class C extends D {static {super(1);}}", INVALID_SUPER_CALL);
+    testError("class C extends D { static { (()=>{ super(); })(); }}", INVALID_SUPER_CALL);
+  }
+
+  @Test
+  public void testPropertyInStaticBlock() {
+    testSame("class C extends D { static { super.foo(); }}");
+    testSame("class C extends D { static { super.foo(1); }}");
+
+    // TODO(tbreisacher): Consider warning for this. It's valid but likely indicates a mistake.
+    testSame("class C extends D { static { var x = super.bar; }}");
+    testSame("class C extends D { static { var x = super[y]; }}");
+    testSame("class C extends D { static { var x = super.bar(); }}");
+
+    testSame("class C extends D { static { this[super.x] = super.bar; }}");
+    testSame("class C extends D { static { this[super.x] = super[y]; }}");
+    testSame("class C extends D { static { this[super.x] = super.bar(); }}");
   }
 
   @Test
@@ -365,7 +403,26 @@ public final class CheckSuperTest extends CompilerTestCase {
     // TODO(tbreisacher): Consider warning for this. It's valid but likely indicates a mistake.
     testSame("class C extends D { foo() { var x = super.bar; }}");
     testSame("class C extends D { foo() { var x = super[y]; }}");
-    testSame("class C extends D { foo() { super.bar(); }}");
+    testSame("class C extends D { foo() { var x = super.bar(); }}");
+
+    testSame("class C extends D { foo() { this[super.x] = super.bar; }}");
+    testSame("class C extends D { foo() { this[super.x] = super[y]; }}");
+    testSame("class C extends D { foo() { this[super.x] = super.bar(); }}");
+  }
+
+  @Test
+  public void testPropertyInStaticMethod() {
+    testSame("class C extends D { static foo() { super.foo(); }}");
+    testSame("class C extends D { static foo() { super.foo(1); }}");
+
+    // TODO(tbreisacher): Consider warning for this. It's valid but likely indicates a mistake.
+    testSame("class C extends D { static foo() { var x = super.bar; }}");
+    testSame("class C extends D { static foo() { var x = super[y]; }}");
+    testSame("class C extends D { static foo() { var x = super.bar(); }}");
+
+    testSame("class C extends D { static foo() { this[super.x] = super.bar; }}");
+    testSame("class C extends D { static foo() { this[super.x] = super[y]; }}");
+    testSame("class C extends D { static foo() { this[super.x] = super.bar(); }}");
   }
 
   @Test
@@ -413,6 +470,8 @@ public final class CheckSuperTest extends CompilerTestCase {
   public void testNestedProperty() {
     testSame("class C extends D { constructor() { super(); (()=>{ super.foo(); })(); }}");
     testSame("class C extends D { foo() { (()=>{ super.foo(); })(); }}");
+    testSame("class C extends D { static foo() { (()=>{ super.foo(); })(); }}");
+    testSame("class C extends D { static { (()=>{ super.foo(); })(); }}");
   }
 
   @Test
@@ -424,6 +483,4 @@ public final class CheckSuperTest extends CompilerTestCase {
     testSame("class C { foo() { super.baz; }}");
     testSame("class C { foo() { super[x](); }}");
   }
-
-  // TODO(sdh): test super.prop access from static methods - this will need runtime tests, too!
 }

@@ -38,7 +38,9 @@ public final class TypeTransformationTest extends CompilerTypeTestCase {
 
   private ImmutableMap<String, JSType> typeVars;
   private ImmutableMap<String, String> nameVars;
-  private static JSType recordTypeTest, nestedRecordTypeTest, asynchRecord;
+  private static JSType recordTypeTest;
+  private static JSType nestedRecordTypeTest;
+  private static JSType asynchRecord;
 
   static final String EXTRA_TYPE_DEFS =
       lines(
@@ -77,12 +79,13 @@ public final class TypeTransformationTest extends CompilerTypeTestCase {
             .put("REC", recordTypeTest)
             .put("NESTEDREC", nestedRecordTypeTest)
             .put("ASYNCH", asynchRecord)
-            .build();
-    nameVars = new ImmutableMap.Builder<String, String>()
-        .put("s", "string")
-        .put("n", "number")
-        .put("b", "boolean")
-        .build();
+            .buildOrThrow();
+    nameVars =
+        new ImmutableMap.Builder<String, String>()
+            .put("s", "string")
+            .put("n", "number")
+            .put("b", "boolean")
+            .buildOrThrow();
   }
 
   @Test
@@ -1089,7 +1092,7 @@ public final class TypeTransformationTest extends CompilerTypeTestCase {
   public void testTransformationInstanceObjectToRecord2() {
     // TODO(bradfordcsmith): Define Array.prototype.length using externs instead.
     getNativeArrayType()
-        .defineDeclaredProperty("length", getNativeNumberType(), /* propertyNode */ null);
+        .defineDeclaredProperty("length", getNativeNumberType(), /* propertyNode= */ null);
     testTTL(record("length", getNativeNumberType()), "record(type(ARR, N))");
   }
 

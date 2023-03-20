@@ -19,7 +19,6 @@ package com.google.javascript.jscomp;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
 
-import com.google.javascript.jscomp.NodeTraversal.Callback;
 import com.google.javascript.jscomp.NodeTraversal.ScopedCallback;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
@@ -90,11 +89,10 @@ public final class CombinedCompilerPassTest {
   }
 
   /**
-   * Concatenates contents of string nodes encountered in pre-order
-   * and post-order traversals. Abbreviates traversals by ignoring subtrees
-   * rooted with specified strings.
+   * Concatenates contents of string nodes encountered in pre-order and post-order traversals.
+   * Abbreviates traversals by ignoring subtrees rooted with specified strings.
    */
-  private static class ConcatTraversal implements Callback {
+  private static class ConcatTraversal implements NodeTraversal.Callback {
     private final StringBuilder visited = new StringBuilder();
     private final StringBuilder shouldTraversed = new StringBuilder();
     private final Set<String> ignoring = new HashSet<>();
@@ -199,7 +197,7 @@ public final class CombinedCompilerPassTest {
   @Test
   public void testCombinedPasses() {
     List<TestHelper> tests  = createStringTests();
-    Callback[] callbacks = new Callback[tests.size()];
+    NodeTraversal.Callback[] callbacks = new NodeTraversal.Callback[tests.size()];
     int i = 0;
     for (TestHelper test : tests) {
       callbacks[i++] = test.getTraversal();
@@ -218,8 +216,8 @@ public final class CombinedCompilerPassTest {
    */
   private static class ScopeRecordingCallback implements ScopedCallback {
 
-    Set<Node> visitedScopes = new HashSet<>();
-    Set<String> ignoring = new HashSet<>();
+    final Set<Node> visitedScopes = new HashSet<>();
+    final Set<String> ignoring = new HashSet<>();
 
     void ignore(String name) {
       ignoring.add(name);

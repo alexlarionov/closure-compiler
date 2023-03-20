@@ -27,12 +27,11 @@ import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.jspecify.nullness.Nullable;
 
 /**
  * The goal with this pass is to simplify the other passes, by making less complex statements.
@@ -58,14 +57,16 @@ import java.util.Set;
  *       var a = 0; for(a;a<0;a++) {}
  * </ol>
  */
-class Normalize implements CompilerPass {
+final class Normalize implements CompilerPass {
 
   private final AbstractCompiler compiler;
+  private final AstFactory astFactory;
   private final boolean assertOnChange;
 
   Normalize(AbstractCompiler compiler, boolean assertOnChange) {
     this.compiler = compiler;
     this.assertOnChange = assertOnChange;
+    this.astFactory = compiler.createAstFactory();
   }
 
   static void normalizeSyntheticCode(AbstractCompiler compiler, Node js, String prefix) {
@@ -133,8 +134,9 @@ class Normalize implements CompilerPass {
         }
 
         JSDocInfo info = null;
-        // Find the JSDocInfo for a top-level variable.
-        Var var = t.getScope().getVar(n.getString());
+        // Find the JSDocInfo for a top-level variable (only if this is a name and not an object
+        // literal key)
+        Var var = n.isName() ? t.getScope().getVar(n.getString()) : null;
         if (var != null) {
           info = var.getJSDocInfo();
         }
@@ -244,15 +246,17 @@ class Normalize implements CompilerPass {
    */
   static class NormalizeStatements implements NodeTraversal.Callback {
     private final AbstractCompiler compiler;
+    private final AstFactory astFactory;
     private final boolean assertOnChange;
     private final RewriteLogicalAssignmentOperatorsHelper rewriteLogicalAssignmentOperatorsHelper;
 
     NormalizeStatements(AbstractCompiler compiler, boolean assertOnChange) {
       this.compiler = compiler;
       this.assertOnChange = assertOnChange;
+      this.astFactory = compiler.createAstFactory();
       this.rewriteLogicalAssignmentOperatorsHelper =
           new RewriteLogicalAssignmentOperatorsHelper(
-              compiler, compiler.createAstFactory(), compiler.getUniqueIdSupplier());
+              compiler, this.astFactory, compiler.getUniqueIdSupplier());
     }
 
     private void reportCodeChange(String changeDescription, Node n) {
@@ -352,12 +356,12 @@ class Normalize implements CompilerPass {
 
         Node exportSpecs = new Node(Token.EXPORT_SPECS).srcref(n);
         n.addChildToFront(exportSpecs);
-        Iterable<Node> names;
         if (c.isClass() || c.isFunction()) {
-          names = Collections.singleton(c.getFirstChild());
+          Node name = c.getFirstChild();
           c.insertBefore(n);
+          addNameNodeToExportSpecs(exportSpecs, name);
         } else {
-          names = NodeUtil.findLhsNodesInNode(c);
+          NodeUtil.visitLhsNodesInNode(c, (name) -> addNameNodeToExportSpecs(exportSpecs, name));
           // Split up var declarations onto separate lines.
           for (Node child = c.getFirstChild(); child != null; ) {
             final Node next = child.getNext();
@@ -368,15 +372,15 @@ class Normalize implements CompilerPass {
           }
         }
 
-        for (Node name : names) {
-          Node exportSpec = new Node(Token.EXPORT_SPEC).srcref(name);
-          exportSpec.addChildToFront(name.cloneNode());
-          exportSpec.addChildToFront(name.cloneNode());
-          exportSpecs.addChildToBack(exportSpec);
-        }
-
         compiler.reportChangeToEnclosingScope(n.getParent());
       }
+    }
+
+    private void addNameNodeToExportSpecs(Node exportSpecs, Node name) {
+      Node exportSpec = new Node(Token.EXPORT_SPEC).srcref(name);
+      exportSpec.addChildToFront(name.cloneNode());
+      exportSpec.addChildToFront(name.cloneNode());
+      exportSpecs.addChildToBack(exportSpec);
     }
 
     /**
@@ -467,7 +471,7 @@ class Normalize implements CompilerPass {
      * @param before The node to insert the initializer before.
      * @param beforeParent The parent of the node before which the initializer will be inserted.
      */
-    private void extractForInitializer(Node n, Node before, Node beforeParent) {
+    private void extractForInitializer(Node n, @Nullable Node before, @Nullable Node beforeParent) {
 
       for (Node next, c = n.getFirstChild(); c != null; c = next) {
         next = c.getNext();
@@ -488,17 +492,18 @@ class Normalize implements CompilerPass {
                 //    for (var [a, b = 3] in c) {}
                 // to:
                 //    var a; var b; for ([a, b = 3] in c) {}
-                List<Node> lhsNodes = NodeUtil.findLhsNodesInNode(lhs);
-                for (Node name : lhsNodes) {
-                  // Add a declaration outside the for loop for the given name.
-                  checkState(
-                      name.isName(),
-                      "lhs in destructuring declaration should be a simple name.",
-                      name);
-                  Node newName = IR.name(name.getString()).srcref(name);
-                  Node newVar = IR.var(newName).srcref(name);
-                  newVar.insertBefore(insertBefore);
-                }
+                NodeUtil.visitLhsNodesInNode(
+                    lhs,
+                    (name) -> {
+                      // Add a declaration outside the for loop for the given name.
+                      checkState(
+                          name.isName(),
+                          "lhs in destructuring declaration should be a simple name. (%s)",
+                          name);
+                      Node newName = IR.name(name.getString()).srcref(name);
+                      Node newVar = IR.var(newName).srcref(name);
+                      newVar.insertBefore(insertBefore);
+                    });
 
                 // Transform for (var [a, b]... ) to for ([a, b]...
                 Node destructuringPattern = lhs.removeFirstChild();
@@ -618,7 +623,8 @@ class Normalize implements CompilerPass {
       shorthand.setToken(NodeUtil.getOpFromAssignmentOp(shorthand));
       Node insertPoint = IR.empty();
       shorthand.replaceWith(insertPoint);
-      Node assign = IR.assign(name.cloneNode().srcref(name), shorthand).srcref(shorthand);
+      Node assign =
+          astFactory.createAssign(name.cloneNode().srcref(name), shorthand).srcref(shorthand);
       assign.setJSDocInfo(shorthand.getJSDocInfo());
       shorthand.setJSDocInfo(null);
       insertPoint.replaceWith(assign);
@@ -708,7 +714,7 @@ class Normalize implements CompilerPass {
         // Convert "var name = value" to "name = value"
         Node value = n.getFirstChild();
         value.detach();
-        Node replacement = IR.assign(n, value);
+        Node replacement = astFactory.createAssign(n, value);
         replacement.setJSDocInfo(parent.getJSDocInfo());
         replacement.srcrefIfMissing(parent);
         Node statement = NodeUtil.newExpr(replacement);
